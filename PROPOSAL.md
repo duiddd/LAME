@@ -1,10 +1,10 @@
 # COMP41720 Week 5 Proposal
 
-Oct 9, 2026 · @Yuchen
+Oct 9, 2026 ·
 
 ## Option and system
 
-**Group:** \[Member A\], \[Member B\], \[Member C\], \[Member D\]
+**Group:** \[Pin-Yun Kuo\], \[Bo Wu\], \[Rushabh Mutha\], \[Zongyan Yang\]
 
 **Option A**: a traditional distributed system with an AI component. We will build a simulated exchange with a built-in market terminal. Users trade on a matching engine, and the terminal shows live prices, news, and an AI analyst that explains market moves. The AI component is a generative analyst (RAG) that answers questions about the market. Risk control on the trading path is deliberately rule-based and deterministic, so the matching engine can replay exactly.
 
@@ -16,10 +16,10 @@ Four services, one owner each. Each service answers exactly one business questio
 
 | Service | Owner | The one question it answers | Key patterns |
 | --- | --- | --- | --- |
-| A. Trading & Accounts | \[Member A\] | Are balances and assets correct? | Trading API and gateway; idempotent order placement; strongly consistent fund holds and margin; idempotent settlement; user-private notifications |
-| B. Matching & Market Data | \[Member B\] | Who trades with whom, at what price? | Deterministic price-time matching; total order per symbol; crash recovery by replay; sequenced market data feed; trading bots and load tests |
-| C. News & AI Analyst | \[Member C\] | What is happening in the market, and why? | Asynchronous news pipeline; versioned searchable index; RAG answers with verified citations, freshness labels and explicit "insufficient evidence"; prompt-injection screening |
-| D. Risk Control | \[Member D\] | Should this order be allowed? | Rule-based pre-trade gate that fails closed; trader features built from the trade stream; real-time liquidation; overnight margin call; rule-versioned decisions |
+| A. Trading & Accounts | \[Pin-Yun Kuo\] | Are balances and assets correct? | Trading API and gateway; idempotent order placement; strongly consistent fund holds and margin; idempotent settlement; user-private notifications |
+| B. Matching & Market Data | \[Bo Wu\] | Who trades with whom, at what price? | Deterministic price-time matching; total order per symbol; crash recovery by replay; sequenced market data feed; trading bots and load tests |
+| C. News & AI Analyst | \[Rushabh Mutha\] | What is happening in the market, and why? | Asynchronous news pipeline; versioned searchable index; RAG answers with verified citations, freshness labels and explicit "insufficient evidence"; prompt-injection screening |
+| D. Risk Control | \[Zongyan Yang\] | Should this order be allowed? | Rule-based pre-trade gate that fails closed; trader features built from the trade stream; real-time liquidation; overnight margin call; rule-versioned decisions |
 
 \[Architecture diagram: four services and their interactions, to be added\]
 
@@ -31,7 +31,7 @@ Four services, one owner each. Each service answers exactly one business questio
 
 ## Service A: Trading & Accounts
 
-**Owner:** \[Member A\] · **The one question it answers:** Are balances and assets correct?
+**Owner:** \[Pin-Yun Kuo\] · **The one question it answers:** Are balances and assets correct?
 
 **Role.** The user-facing entry point of the exchange, and the single authority for account balances and order state. Its users are discretionary traders placing orders by hand. Bots only act as load sources; A provides no features specific to programmatic trading.
 
@@ -58,7 +58,7 @@ Four services, one owner each. Each service answers exactly one business questio
 
 ## Service B: Matching & Market Data
 
-**Owner:** \[Member B\] · **The one question it answers:** Who trades with whom, at what price?
+**Owner:** \[Bo Wu\] · **The one question it answers:** Who trades with whom, at what price?
 
 **Role.** The matching core of the exchange and the single source of market data. B cares only about orders and trades, not accounts or funds. Every order it receives comes from D, either a user order that A has validated and D has approved, or a forced-liquidation order that D originated itself.
 
@@ -84,7 +84,7 @@ Four services, one owner each. Each service answers exactly one business questio
 
 ## Service C: News & AI Analyst
 
-**Owner:** \[Member C\] · **The one question it answers:** What is happening in the market, and why?
+**Owner:** \[Rushabh Mutha\] · **The one question it answers:** What is happening in the market, and why?
 
 **Role.** The generative AI component, which explains the market to users. It is not on the trading path: if C fails or slows down, order placement and matching must be unaffected. It explains the market only; it gives no investment advice and makes no trading decisions.
 
@@ -114,7 +114,7 @@ Four services, one owner each. Each service answers exactly one business questio
 
 ## Service D: Risk Control
 
-**Owner:** \[Member D\] · **The one question it answers:** Should this order be allowed?
+**Owner:** \[Zongyan Yang\] · **The one question it answers:** Should this order be allowed?
 
 **Role.** The gatekeeper between A and B, and the guardian of leveraged accounts. D is entirely rule-based: the same inputs always produce the same decision, and no AI is involved. It has two parts: **real-time risk control**, which sits on the order path and watches margin continuously, and **overnight risk control**, which checks margin at the end of each simulated trading day.
 
