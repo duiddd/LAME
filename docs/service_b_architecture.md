@@ -41,6 +41,10 @@ Every output record carries `day`, `seq` (its own sequence number) and `prev_seq
 - B-issued rejections: `EXPIRED` (see 6.3), `ORDER_NOT_FOUND` / `ORDER_ALREADY_FINAL` for a cancel of an unknown or finished order (D7), and invalid commands (unknown symbol, price or qty off the tick/lot grid).
 - B guarantees accuracy and low latency of what it emits. Deduplication and use of events by consumers is theirs (D8).
 
+### 2.2.1 Self-trade prevention (D24)
+
+As the atomic backstop for D's self-trade rule, the matcher never matches an incoming order against a resting order of the same `user_id`. It stops there and cancels the incoming order's remainder (`OrderEvent` `CANCELLED`, `reason = SELF_TRADE_PREVENTED`); the resting order is untouched. Fills against other users before that point stand. Linked accounts are D's concern (R2), not B's.
+
 ### 2.3 Output: market data to clients
 
 Clients connect to `/md/<symbol>` on port 9999 and receive full snapshots of the top three bid and ask levels plus `last_price` (D6). See section 7.
