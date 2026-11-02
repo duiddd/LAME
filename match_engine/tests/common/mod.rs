@@ -139,7 +139,7 @@ impl Harness {
                 order_id: id,
                 user_id: id,
                 side,
-                price,
+                price: Some(price),
                 qty,
             }),
         );

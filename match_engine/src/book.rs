@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::types::{Order, OrderEvent, OrderId, Output, Price, Seq, Side, Status, Trade, UserId};
+use crate::types::{
+    Order, OrderEvent, OrderId, Output, Price, Reason, Seq, Side, Status, Trade, UserId,
+};
 
 const NIL: u32 = u32::MAX;
 
@@ -40,12 +42,31 @@ impl OrderBook {
         self.index.contains_key(&seq)
     }
 
-    /// Matches `order` against the opposite side, then rests any remainder at
-    /// its own price. `order.seq` must not already be in the book.
+    /// Matches `order` against the opposite side. What happens to the
+    /// remainder depends on why matching stopped:
+    /// - it met a resting order of the same user: the remainder is rejected
+    ///   (`SelfTradePrevented`) and the resting order is left alone (D24);
+    /// - a limit order's remainder rests at its own price;
+    /// - a market order's remainder is cancelled, it never rests.
+    ///
+    /// `order.seq` must not already be in the book.
     pub fn add(&mut self, mut order: Order, out: &mut Vec<Output>) {
-        self.match_incoming(&mut order, out);
-        if order.qty > 0 {
-            self.rest(order);
+        let self_trade = self.match_incoming(&mut order, out);
+        if self_trade {
+            out.push(Output::Order(OrderEvent {
+                status: Status::Rejected,
+                reason: Some(Reason::SelfTradePrevented),
+                ..unfilled_event(&order)
+            }));
+        } else if order.qty > 0 {
+            if order.market {
+                out.push(Output::Order(OrderEvent {
+                    status: Status::Cancelled,
+                    ..unfilled_event(&order)
+                }));
+            } else {
+                self.rest(order);
+            }
         }
     }
 
@@ -105,7 +126,9 @@ impl OrderBook {
         entry.map(|(p, l)| (*p, *l))
     }
 
-    fn match_incoming(&mut self, order: &mut Order, out: &mut Vec<Output>) {
+    /// Returns true if matching stopped at a resting order of the same user.
+    fn match_incoming(&mut self, order: &mut Order, out: &mut Vec<Output>) -> bool {
+        let mut self_trade = false;
         while order.qty > 0 {
             let Some((price, mut level)) = self.best_opposite(order.side) else {
                 break;
@@ -120,6 +143,10 @@ impl OrderBook {
 
             while order.qty > 0 && level.head != NIL {
                 let idx = level.head;
+                if self.slab[idx as usize].order.user_id == order.user_id {
+                    self_trade = true;
+                    break;
+                }
                 let node = &mut self.slab[idx as usize];
                 let traded = order.qty.min(node.order.qty);
                 order.qty -= traded;
@@ -164,7 +191,11 @@ impl OrderBook {
             } else {
                 levels.insert(price, level);
             }
+            if self_trade {
+                break;
+            }
         }
+        self_trade
     }
 
     fn rest(&mut self, order: Order) {
@@ -215,6 +246,19 @@ fn fill_event(o: &Order) -> OrderEvent {
         } else {
             Status::PartiallyFilled
         },
+        filled: o.filled,
+        remaining: o.qty,
+        reason: None,
+    }
+}
+
+/// Event for an incoming order that stops matching with quantity left over.
+fn unfilled_event(o: &Order) -> OrderEvent {
+    OrderEvent {
+        order_seq: Some(o.seq),
+        order_id: Some(o.order_id),
+        user_id: Some(o.user_id),
+        status: Status::Cancelled,
         filled: o.filled,
         remaining: o.qty,
         reason: None,

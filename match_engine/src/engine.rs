@@ -1,6 +1,6 @@
 use crate::book::OrderBook;
 use crate::types::{
-    CancelTarget, Command, NewOrder, Order, OrderEvent, Output, Reason, Seq, Status,
+    CancelTarget, Command, NewOrder, Order, OrderEvent, Output, Price, Reason, Seq, Side, Status,
 };
 
 /// One book plus its output queue. `process` is a pure function of the
@@ -50,9 +50,14 @@ impl MatchEngine {
                 order_id: new.order_id,
                 user_id: new.user_id,
                 side: new.side,
-                price: new.price,
+                // A market order crosses every price.
+                price: new.price.unwrap_or(match new.side {
+                    Side::Buy => Price::MAX,
+                    Side::Sell => Price::MIN,
+                }),
                 qty: new.qty,
                 filled: 0,
+                market: new.price.is_none(),
             },
             &mut self.outputs,
         );

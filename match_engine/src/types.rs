@@ -24,6 +24,9 @@ pub struct Order {
     pub price: Price,
     pub qty: Qty,
     pub filled: Qty,
+    /// A market order has no limit price (its `price` is a sentinel that
+    /// crosses everything) and never rests.
+    pub market: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,7 +34,8 @@ pub struct NewOrder {
     pub order_id: OrderId,
     pub user_id: UserId,
     pub side: Side,
-    pub price: Price,
+    /// `None` is a market order.
+    pub price: Option<Price>,
     pub qty: Qty,
 }
 
@@ -61,6 +65,9 @@ pub enum Status {
 pub enum Reason {
     /// Cancel of an order that is not resting: unknown, filled or cancelled (D7).
     OrderNotFound,
+    /// The order met a resting order of the same user; its remainder is
+    /// rejected instead of trading (D24).
+    SelfTradePrevented,
 }
 
 /// The outcome for one order. For a rejected cancel only the ids the cancel

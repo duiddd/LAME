@@ -9,7 +9,7 @@ fn new(order_id: u64, user_id: u64, side: Side, price: i64, qty: i64) -> Command
         order_id,
         user_id,
         side,
-        price,
+        price: Some(price),
         qty,
     })
 }
