@@ -77,6 +77,9 @@ pub enum CancelTarget {
 pub enum Command {
     New(NewOrder),
     Cancel(CancelTarget),
+    /// End of the trading day (D22). Written to the journal by B itself, not
+    /// sent by D. Cancels every resting order, then resets the book.
+    DayClose,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,6 +101,9 @@ pub enum Reason {
     /// The command waited longer than `MAX_COMMAND_AGE` between `sent_at` and
     /// the journal's `ts` (D15).
     Expired,
+    /// The trading day is over: a resting order cancelled at close (D22), or
+    /// a new order that arrived after it.
+    EndOfDay,
     /// Limit price is not positive or not a multiple of the tick (D5).
     InvalidPrice,
     /// Quantity is not positive or not a multiple of the lot (D5).

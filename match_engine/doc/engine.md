@@ -23,6 +23,7 @@ let mut engine = MatchEngine::new(SymbolSpec::new(tick, lot));
 engine.process(seq, ts, Command::New(NewOrder { order_id, user_id, side, price, qty, sent_at }));
 engine.process(seq, ts, Command::Cancel(CancelTarget::ById { user_id, order_id }));
 engine.process(seq, ts, Command::Cancel(CancelTarget::BySeq(order_seq)));
+engine.process(seq, ts, Command::DayClose);
 for output in engine.drain_outputs() { /* Output::Order(..) | Output::Trade(..) */ }
 ```
 
@@ -52,6 +53,7 @@ for output in engine.drain_outputs() { /* Output::Order(..) | Output::Trade(..) 
 | `New(NewOrder)` | `order_id`, `user_id`, `side`, `price: Option<Price>`, `qty`, `sent_at` (when D issued it) |
 | `Cancel(ById { user_id, order_id })` | target named by the caller's ids |
 | `Cancel(BySeq(seq))` | target named by the order's seq |
+| `DayClose` | no fields. End of the trading day, see below |
 
 ## Outputs
 
@@ -76,6 +78,7 @@ identifies it (D3).
 | Reason | When |
 | --- | --- |
 | `Expired` | The command's age (`ts - sent_at`) exceeds `MAX_COMMAND_AGE` |
+| `EndOfDay` | A resting order cancelled at close (`Cancelled`), or a new order that arrived after close (`Rejected`, produced by the journal layer) |
 | `InvalidPrice` | Limit price is not positive or not a multiple of the tick |
 | `InvalidQty` | Quantity is not positive or not a multiple of the lot |
 | `SelfTradePrevented` | Matching reached a resting order of the same user |
@@ -130,6 +133,32 @@ refused, so a late arrival of an order that D already gave up on cannot trade.
   `MAX_COMMAND_AGE=500 cargo build --release`; the default is 1000. A value
   that is not a non-negative integer fails the build. It must not exceed D's
   own command timeout.
+
+## End of day (D22)
+
+`DayClose` is a record the journal writes itself, not a command from D. It is
+a normal input of the engine, so replay reproduces the close exactly.
+
+1. Every resting order is cancelled in ascending order `seq` (not by price or
+   side). Each one emits `Cancelled` with `reason = EndOfDay` and its
+   cumulative `filled` and removed `remaining`.
+2. The book is then reset completely: no orders, levels or index entries, and
+   no retained slab storage. The engine and the process keep running; nothing
+   needs restarting.
+3. After the reset the engine behaves like a fresh one. The next day's `seq`
+   may restart from 1 and ids may be reused.
+
+A `DayClose` on an empty book, or a second one in a row, emits nothing.
+
+What the engine does **not** do, because it belongs to the journal layer
+(not built yet):
+
+- deciding that the day is over: the session is 09:30 to 16:00 in Dublin time
+  (Europe/Dublin), judged from the epoch-millisecond timestamp. Weekends and
+  holidays are not handled at this layer. When the time is reached the journal
+  writes `DayClose` first, then lets the engine cancel;
+- rejecting new orders that arrive after the close with `Rejected(EndOfDay)`;
+- switching to the next day's event store and resetting `seq`.
 
 ## Cancels
 

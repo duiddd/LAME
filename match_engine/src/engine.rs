@@ -64,6 +64,7 @@ impl MatchEngine {
         match cmd {
             Command::New(new) => self.new_order(seq, ts, new),
             Command::Cancel(target) => self.cancel(target),
+            Command::DayClose => self.book.close_day(&mut self.outputs),
         }
     }
 

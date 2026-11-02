@@ -70,6 +70,24 @@ impl OrderBook {
         }
     }
 
+    /// Cancels every resting order in ascending `seq` order, emitting
+    /// `Cancelled` with `EndOfDay` for each, then resets the book completely:
+    /// no orders, no levels, no index entries, no retained slab storage.
+    pub fn close_day(&mut self, out: &mut Vec<Output>) {
+        let mut seqs: Vec<Seq> = self.index.keys().copied().collect();
+        seqs.sort_unstable();
+        for seq in seqs {
+            if let Some(o) = self.remove(seq) {
+                out.push(Output::Order(OrderEvent {
+                    status: Status::Cancelled,
+                    reason: Some(Reason::EndOfDay),
+                    ..unfilled_event(&o)
+                }));
+            }
+        }
+        *self = OrderBook::default();
+    }
+
     /// Removes a resting order by `(user_id, order_id)`.
     pub fn remove_by_key(&mut self, user_id: UserId, order_id: OrderId) -> Option<Order> {
         let seq = *self.by_key.get(&(user_id, order_id))?;

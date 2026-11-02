@@ -12,6 +12,8 @@
   order and the remainder is rejected.
 - Market orders never rest; leftover quantity is cancelled.
 - Tick/lot grid validation (D5) with `InvalidPrice` / `InvalidQty`.
+- End-of-day `DayClose`: cancels all resting orders in `seq` order with
+  `EndOfDay`, then fully resets the book (D22).
 - Expiry of stale `New` commands (D15): a pure timestamp comparison against a
   build-time `MAX_COMMAND_AGE` (default 1000 ms), checked before the grid.
 
@@ -19,7 +21,7 @@
 
 | Item | Where it is specified |
 | --- | --- |
-| End-of-day cancel of all resting orders (`DayClose`, reason `END_OF_DAY`) | D22 |
+| Journal side of end of day: judging 09:30-16:00 from the epoch timestamp, writing `DayClose`, rejecting later orders with `EndOfDay`, switching to the next day's store | D22, journal layer |
 | Top-three-level snapshot with `last_price` | D6 |
 | Loading tick/lot per symbol from the mounted config file | D23. `SymbolSpec` is built by hand; see the TODO in `src/types.rs` |
 | Unknown-symbol rejection | Connection layer, one engine instance per symbol |
@@ -31,6 +33,9 @@
 
 ## Points to be aware of
 
+- The trading session is 09:30 to 16:00 in Dublin time (Europe/Dublin), judged
+  from the epoch-millisecond timestamp by the journal layer, which is not
+  built yet. Weekends and holidays are not handled at this layer.
 - A `Rejected(SelfTradePrevented)` event can carry a non-zero `filled`.
   Consumers must not treat every `Rejected` as "nothing traded".
 - Reusing an `order_id` for the same user within a day is undefined upstream
