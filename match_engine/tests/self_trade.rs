@@ -20,7 +20,9 @@ fn order(
 ) -> Vec<Output> {
     e.process(
         seq,
+        0,
         Command::New(NewOrder {
+            sent_at: 0,
             order_id: seq,
             user_id,
             side,

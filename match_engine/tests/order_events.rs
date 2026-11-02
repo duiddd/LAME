@@ -7,6 +7,7 @@ use match_engine::{
 
 fn new(order_id: u64, user_id: u64, side: Side, price: i64, qty: i64) -> Command {
     Command::New(NewOrder {
+        sent_at: 0,
         order_id,
         user_id,
         side,
@@ -58,16 +59,16 @@ fn out(e: &mut MatchEngine) -> Vec<Output> {
 #[test]
 fn every_new_order_is_accepted_first() {
     let mut e = MatchEngine::new(SymbolSpec::UNIT);
-    e.process(10, new(7, 1, Side::Sell, 100, 5));
+    e.process(10, 0, new(7, 1, Side::Sell, 100, 5));
     assert_eq!(out(&mut e), [ev(10, 7, 1, Status::Accepted, 0, 5)]);
 }
 
 #[test]
 fn match_emits_accepted_trade_taker_then_maker() {
     let mut e = MatchEngine::new(SymbolSpec::UNIT);
-    e.process(1, new(100, 11, Side::Sell, 50, 5));
+    e.process(1, 0, new(100, 11, Side::Sell, 50, 5));
     out(&mut e);
-    e.process(2, new(200, 22, Side::Buy, 50, 3));
+    e.process(2, 0, new(200, 22, Side::Buy, 50, 3));
     assert_eq!(
         out(&mut e),
         [
@@ -89,25 +90,26 @@ fn match_emits_accepted_trade_taker_then_maker() {
 #[test]
 fn filled_counts_accumulate_across_trades() {
     let mut e = MatchEngine::new(SymbolSpec::UNIT);
-    e.process(1, new(1, 1, Side::Sell, 10, 2));
-    e.process(2, new(2, 2, Side::Sell, 10, 2));
+    e.process(1, 0, new(1, 1, Side::Sell, 10, 2));
+    e.process(2, 0, new(2, 2, Side::Sell, 10, 2));
     out(&mut e);
-    e.process(3, new(3, 3, Side::Buy, 10, 5));
+    e.process(3, 0, new(3, 3, Side::Buy, 10, 5));
     let events = out(&mut e);
     // Taker events after each of the two trades, then it rests with 1 left.
     assert!(events.contains(&ev(3, 3, 3, Status::PartiallyFilled, 2, 3)));
     assert!(events.contains(&ev(3, 3, 3, Status::PartiallyFilled, 4, 1)));
-    e.process(4, Command::Cancel(CancelTarget::BySeq(3)));
+    e.process(4, 0, Command::Cancel(CancelTarget::BySeq(3)));
     assert_eq!(out(&mut e), [ev(3, 3, 3, Status::Cancelled, 4, 1)]);
 }
 
 #[test]
 fn cancel_by_user_and_order_id() {
     let mut e = MatchEngine::new(SymbolSpec::UNIT);
-    e.process(1, new(9, 5, Side::Buy, 10, 4));
+    e.process(1, 0, new(9, 5, Side::Buy, 10, 4));
     out(&mut e);
     e.process(
         2,
+        0,
         Command::Cancel(CancelTarget::ById {
             user_id: 5,
             order_id: 9,
@@ -119,11 +121,12 @@ fn cancel_by_user_and_order_id() {
 #[test]
 fn same_order_id_for_different_users_is_distinct() {
     let mut e = MatchEngine::new(SymbolSpec::UNIT);
-    e.process(1, new(1, 100, Side::Buy, 10, 1));
-    e.process(2, new(1, 200, Side::Buy, 10, 1));
+    e.process(1, 0, new(1, 100, Side::Buy, 10, 1));
+    e.process(2, 0, new(1, 200, Side::Buy, 10, 1));
     out(&mut e);
     e.process(
         3,
+        0,
         Command::Cancel(CancelTarget::ById {
             user_id: 200,
             order_id: 1,
@@ -131,7 +134,7 @@ fn same_order_id_for_different_users_is_distinct() {
     );
     assert_eq!(out(&mut e), [ev(2, 1, 200, Status::Cancelled, 0, 1)]);
     // The other user's order is still resting.
-    e.process(4, new(2, 300, Side::Sell, 10, 1));
+    e.process(4, 0, new(2, 300, Side::Sell, 10, 1));
     let trades: Vec<_> = out(&mut e)
         .into_iter()
         .filter_map(|o| match o {
@@ -145,11 +148,12 @@ fn same_order_id_for_different_users_is_distinct() {
 #[test]
 fn cancel_by_reused_id_targets_the_latest_resting_order() {
     let mut e = MatchEngine::new(SymbolSpec::UNIT);
-    e.process(1, new(1, 1, Side::Buy, 10, 1));
-    e.process(2, new(1, 1, Side::Buy, 10, 1)); // same (user, id): undefined upstream, latest wins
+    e.process(1, 0, new(1, 1, Side::Buy, 10, 1));
+    e.process(2, 0, new(1, 1, Side::Buy, 10, 1)); // same (user, id): undefined upstream, latest wins
     out(&mut e);
     e.process(
         3,
+        0,
         Command::Cancel(CancelTarget::ById {
             user_id: 1,
             order_id: 1,
@@ -163,12 +167,13 @@ fn cancel_of_unknown_order_is_rejected() {
     let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(
         1,
+        0,
         Command::Cancel(CancelTarget::ById {
             user_id: 5,
             order_id: 9,
         }),
     );
-    e.process(2, Command::Cancel(CancelTarget::BySeq(77)));
+    e.process(2, 0, Command::Cancel(CancelTarget::BySeq(77)));
     assert_eq!(
         out(&mut e),
         [
@@ -181,21 +186,22 @@ fn cancel_of_unknown_order_is_rejected() {
 #[test]
 fn cancel_of_finished_order_is_rejected_as_not_found() {
     let mut e = MatchEngine::new(SymbolSpec::UNIT);
-    e.process(1, new(1, 1, Side::Sell, 10, 1));
-    e.process(2, new(2, 2, Side::Buy, 10, 1)); // both filled
-    e.process(3, new(3, 3, Side::Buy, 9, 1));
-    e.process(4, Command::Cancel(CancelTarget::BySeq(3))); // cancelled
+    e.process(1, 0, new(1, 1, Side::Sell, 10, 1));
+    e.process(2, 0, new(2, 2, Side::Buy, 10, 1)); // both filled
+    e.process(3, 0, new(3, 3, Side::Buy, 9, 1));
+    e.process(4, 0, Command::Cancel(CancelTarget::BySeq(3))); // cancelled
     out(&mut e);
 
     e.process(
         5,
+        0,
         Command::Cancel(CancelTarget::ById {
             user_id: 1,
             order_id: 1,
         }),
     );
-    e.process(6, Command::Cancel(CancelTarget::BySeq(2)));
-    e.process(7, Command::Cancel(CancelTarget::BySeq(3)));
+    e.process(6, 0, Command::Cancel(CancelTarget::BySeq(2)));
+    e.process(7, 0, Command::Cancel(CancelTarget::BySeq(3)));
     assert_eq!(
         out(&mut e),
         [
@@ -209,10 +215,10 @@ fn cancel_of_finished_order_is_rejected_as_not_found() {
 #[test]
 fn rejected_cancel_leaves_the_book_untouched() {
     let mut e = MatchEngine::new(SymbolSpec::UNIT);
-    e.process(1, new(1, 1, Side::Sell, 10, 2));
-    e.process(2, Command::Cancel(CancelTarget::BySeq(99)));
+    e.process(1, 0, new(1, 1, Side::Sell, 10, 2));
+    e.process(2, 0, Command::Cancel(CancelTarget::BySeq(99)));
     out(&mut e);
-    e.process(3, new(2, 2, Side::Buy, 10, 2));
+    e.process(3, 0, new(2, 2, Side::Buy, 10, 2));
     let trades = out(&mut e)
         .into_iter()
         .filter(|o| matches!(o, Output::Trade(_)))
@@ -232,7 +238,7 @@ fn replaying_the_same_commands_gives_identical_outputs() {
     let run = || {
         let mut e = MatchEngine::new(SymbolSpec::UNIT);
         for (seq, c) in cmds {
-            e.process(seq, c);
+            e.process(seq, 0, c);
         }
         out(&mut e)
     };

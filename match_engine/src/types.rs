@@ -7,6 +7,8 @@ pub type UserId = u64;
 /// Day-scoped sequence number assigned by the journal (D1). An order is
 /// identified by the `seq` of its `NewOrder` record.
 pub type Seq = u64;
+/// Unix time in milliseconds. Taken from the command, never from a clock.
+pub type Timestamp = i64;
 
 /// Grid of one trading pair: prices are multiples of `tick`, quantities are
 /// multiples of `lot` (D5).
@@ -60,6 +62,8 @@ pub struct NewOrder {
     /// `None` is a market order.
     pub price: Option<Price>,
     pub qty: Qty,
+    /// When the sender (D) issued the command (D15).
+    pub sent_at: Timestamp,
 }
 
 /// A cancel names its target either by `(user_id, order_id)` or by order seq.
@@ -91,6 +95,9 @@ pub enum Reason {
     /// The order met a resting order of the same user; its remainder is
     /// rejected instead of trading (D24).
     SelfTradePrevented,
+    /// The command waited longer than `MAX_COMMAND_AGE` between `sent_at` and
+    /// the journal's `ts` (D15).
+    Expired,
     /// Limit price is not positive or not a multiple of the tick (D5).
     InvalidPrice,
     /// Quantity is not positive or not a multiple of the lot (D5).

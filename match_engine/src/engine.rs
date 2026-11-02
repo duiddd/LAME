@@ -1,8 +1,43 @@
 use crate::book::OrderBook;
 use crate::types::{
     CancelTarget, Command, NewOrder, Order, OrderEvent, Output, Price, Reason, Seq, Side, Status,
-    SymbolSpec,
+    SymbolSpec, Timestamp,
 };
+
+/// Longest a `NewOrder` may spend between `sent_at` and the journal's `ts`
+/// before it is rejected as `Expired` (D15), in milliseconds.
+///
+/// Fixed when the crate is compiled: set the `MAX_COMMAND_AGE` environment
+/// variable (a non-negative integer, milliseconds) at build time, default 1000.
+/// It must not exceed D's own command timeout.
+pub const MAX_COMMAND_AGE: Timestamp = parse_age(option_env!("MAX_COMMAND_AGE"));
+
+const fn parse_age(value: Option<&str>) -> Timestamp {
+    let Some(text) = value else {
+        return 1000;
+    };
+    let digits = text.as_bytes();
+    assert!(!digits.is_empty(), "MAX_COMMAND_AGE must not be empty");
+    let mut age: Timestamp = 0;
+    let mut i = 0;
+    while i < digits.len() {
+        let d = digits[i];
+        assert!(
+            d.is_ascii_digit(),
+            "MAX_COMMAND_AGE must be a non-negative integer (ms)"
+        );
+        age = match age.checked_mul(10) {
+            Some(a) => a,
+            None => panic!("MAX_COMMAND_AGE is too large"),
+        };
+        age = match age.checked_add((d - b'0') as Timestamp) {
+            Some(a) => a,
+            None => panic!("MAX_COMMAND_AGE is too large"),
+        };
+        i += 1;
+    }
+    age
+}
 
 /// One book plus its output queue. `process` is a pure function of the
 /// command sequence it has been given.
@@ -21,11 +56,13 @@ impl MatchEngine {
         }
     }
 
-    /// Applies one command. `seq` is the journal's sequence number for it; for
-    /// a `New` command it becomes the order's identity.
-    pub fn process(&mut self, seq: Seq, cmd: Command) {
+    /// Applies one command. `seq` and `ts` are the journal's sequence number
+    /// and receive time for it; for a `New` command `seq` becomes the order's
+    /// identity. `ts` is only compared with the command's own `sent_at`, so
+    /// the result depends on the inputs alone, never on a clock.
+    pub fn process(&mut self, seq: Seq, ts: Timestamp, cmd: Command) {
         match cmd {
-            Command::New(new) => self.new_order(seq, new),
+            Command::New(new) => self.new_order(seq, ts, new),
             Command::Cancel(target) => self.cancel(target),
         }
     }
@@ -52,8 +89,19 @@ impl MatchEngine {
         }
     }
 
-    fn new_order(&mut self, seq: Seq, new: NewOrder) {
-        if let Some(reason) = self.grid_violation(&new) {
+    /// Why `new` must be refused before it reaches the book, if it must.
+    /// Expiry is checked first (D15), then the grid (D5).
+    fn refusal(&self, ts: Timestamp, new: &NewOrder) -> Option<Reason> {
+        // `sent_at` after `ts` (clock skew) gives a negative age: not expired.
+        if ts.saturating_sub(new.sent_at) > MAX_COMMAND_AGE {
+            Some(Reason::Expired)
+        } else {
+            self.grid_violation(new)
+        }
+    }
+
+    fn new_order(&mut self, seq: Seq, ts: Timestamp, new: NewOrder) {
+        if let Some(reason) = self.refusal(ts, &new) {
             self.outputs.push(Output::Order(OrderEvent {
                 order_seq: Some(seq),
                 order_id: Some(new.order_id),

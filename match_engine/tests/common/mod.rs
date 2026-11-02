@@ -139,7 +139,9 @@ impl Harness {
         let seq = self.seq();
         self.engine.process(
             seq,
+            0,
             Command::New(NewOrder {
+                sent_at: 0,
                 order_id: id,
                 user_id: id,
                 side,
@@ -155,6 +157,7 @@ impl Harness {
         let before = self.engine.outputs().len();
         self.engine.process(
             seq,
+            0,
             Command::Cancel(CancelTarget::ById {
                 user_id: id,
                 order_id: id,

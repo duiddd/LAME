@@ -14,6 +14,7 @@ cargo fmt --check
 | `tests/order_events.rs` | `Accepted` first, event order for a match, cumulative `filled`, cancel by `(user_id, order_id)` and by seq, same `order_id` for different users, `OrderNotFound` for unknown and finished orders, rejected cancel leaves the book alone, replay determinism |
 | `tests/self_trade.rs` | Aggressive limit and market orders partially filled then rejected at the user's own order (both sides), rejection with no fill, own order out of price range, same-side own orders, other users unaffected, market remainder cancelled when liquidity runs out |
 | `tests/validation.rs` | On-grid acceptance, price off tick, non-positive price, quantity off lot, non-positive quantity, market order checks quantity only, price reported before quantity, rejected order never reaches the book, invalid `SymbolSpec` panics |
+| `tests/expiry.rs` | Age exactly at the threshold accepted, one past it expired, fresh orders, `sent_at` after receipt not expired, extreme timestamps without overflow, market orders expire, expiry checked before the grid, expired order neither trades nor rests, cancels never expire, replay determinism |
 | `tests/csv_protocol.rs` | The CSV request parser and output formatter used by the test adapter |
 | `tests/datasets.rs` | Dataset regression, see below |
 

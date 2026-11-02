@@ -7,7 +7,6 @@ mod common;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::time::Instant;
 
 use common::{apply_line, Harness, LineEvent};
 
@@ -31,7 +30,6 @@ fn datasets_match_manifest() {
         let reader = BufReader::new(File::open(dir.join(file)).unwrap());
         let mut engine = Harness::new();
         let (mut events, mut trades, mut rejected) = (0u64, 0u64, 0u64);
-        let started = Instant::now();
         for line in reader.lines() {
             if !apply_line(&mut engine, &line.unwrap()) {
                 rejected += 1;
@@ -41,10 +39,7 @@ fn datasets_match_manifest() {
                 trades += matches!(e, LineEvent::Trade { .. }) as u64;
             }
         }
-        eprintln!(
-            "{file}: {events} events, {trades} trades in {:?}",
-            started.elapsed()
-        );
+        eprintln!("{file}: {events} events, {trades} trades");
         assert_eq!(rejected, 0, "{file}: rejected requests");
         assert_eq!(events, want_events, "{file}: events");
         assert_eq!(trades, want_trades, "{file}: trades");

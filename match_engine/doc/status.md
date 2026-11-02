@@ -12,12 +12,13 @@
   order and the remainder is rejected.
 - Market orders never rest; leftover quantity is cancelled.
 - Tick/lot grid validation (D5) with `InvalidPrice` / `InvalidQty`.
+- Expiry of stale `New` commands (D15): a pure timestamp comparison against a
+  build-time `MAX_COMMAND_AGE` (default 1000 ms), checked before the grid.
 
 ## Not implemented yet
 
 | Item | Where it is specified |
 | --- | --- |
-| `EXPIRED` rejection of stale commands (`ts - sent_at > MAX_COMMAND_AGE`) | D15. Needs `ts` and `sent_at` on commands |
 | End-of-day cancel of all resting orders (`DayClose`, reason `END_OF_DAY`) | D22 |
 | Top-three-level snapshot with `last_price` | D6 |
 | Loading tick/lot per symbol from the mounted config file | D23. `SymbolSpec` is built by hand; see the TODO in `src/types.rs` |
@@ -35,6 +36,8 @@
 - Reusing an `order_id` for the same user within a day is undefined upstream
   (D2). The engine does not detect it; a cancel by id targets the latest
   resting order.
+- `MAX_COMMAND_AGE` is fixed at build time, so changing it means rebuilding the
+  image. The value must be kept consistent with D's command timeout (D15).
 - The engine does not check that `seq` values are fresh or increasing; that
   is the journal's guarantee.
 - `main.rs` is still a placeholder.

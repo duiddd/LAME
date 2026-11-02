@@ -8,8 +8,8 @@ pub mod engine;
 pub mod types;
 
 pub use book::OrderBook;
-pub use engine::MatchEngine;
+pub use engine::{MatchEngine, MAX_COMMAND_AGE};
 pub use types::{
     CancelTarget, Command, NewOrder, Order, OrderEvent, OrderId, Output, Price, Qty, Reason, Seq,
-    Side, Status, SymbolSpec, Trade, UserId,
+    Side, Status, SymbolSpec, Timestamp, Trade, UserId,
 };

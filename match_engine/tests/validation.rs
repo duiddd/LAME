@@ -15,7 +15,9 @@ fn engine() -> MatchEngine {
 fn send(e: &mut MatchEngine, seq: u64, side: Side, price: Option<i64>, qty: i64) -> Vec<Output> {
     e.process(
         seq,
+        0,
         Command::New(NewOrder {
+            sent_at: 0,
             order_id: seq,
             user_id: seq, // distinct users: no self-trade interference
             side,
@@ -117,7 +119,7 @@ fn rejected_order_never_reaches_the_book() {
     );
     // Nothing traded, the sell is still resting, and the rejected order cannot
     // be cancelled because it was never known.
-    e.process(3, Command::Cancel(CancelTarget::BySeq(2)));
+    e.process(3, 0, Command::Cancel(CancelTarget::BySeq(2)));
     assert_eq!(
         e.drain_outputs().collect::<Vec<_>>(),
         [Output::Order(OrderEvent {

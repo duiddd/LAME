@@ -20,15 +20,18 @@ src/
 
 ```rust
 let mut engine = MatchEngine::new(SymbolSpec::new(tick, lot));
-engine.process(seq, Command::New(NewOrder { order_id, user_id, side, price, qty }));
-engine.process(seq, Command::Cancel(CancelTarget::ById { user_id, order_id }));
-engine.process(seq, Command::Cancel(CancelTarget::BySeq(order_seq)));
+engine.process(seq, ts, Command::New(NewOrder { order_id, user_id, side, price, qty, sent_at }));
+engine.process(seq, ts, Command::Cancel(CancelTarget::ById { user_id, order_id }));
+engine.process(seq, ts, Command::Cancel(CancelTarget::BySeq(order_seq)));
 for output in engine.drain_outputs() { /* Output::Order(..) | Output::Trade(..) */ }
 ```
 
 - `seq` is the journal's day-scoped sequence number for the command. For a
   `New` command it becomes the order's identity everywhere (events, trades,
   cancel-by-seq). The engine does not check that `seq` is fresh.
+- `ts` is the journal's receive time for the command (Unix ms). The engine
+  uses it only to compare with a `New` command's `sent_at`; it never reads a
+  clock (see Expiry).
 - `price: None` is a market order.
 - `outputs()` peeks at the queue; `drain_outputs()` hands it over and empties it.
 
@@ -37,6 +40,7 @@ for output in engine.drain_outputs() { /* Output::Order(..) | Output::Trade(..) 
 | Type | Meaning |
 | --- | --- |
 | `Price`, `Qty` | `i64`. No floating point anywhere (D5) |
+| `Timestamp` | `i64`, Unix milliseconds |
 | `Seq`, `OrderId`, `UserId` | `u64`. `OrderId` is chosen by the caller and unique per user per day (D2) |
 | `SymbolSpec { tick, lot }` | The pair's grid. `new` panics unless both are positive; `UNIT` is 1/1 for tests |
 | `Order` | An incoming or resting order. `qty` is the remaining quantity, `filled` the executed quantity |
@@ -45,7 +49,7 @@ for output in engine.drain_outputs() { /* Output::Order(..) | Output::Trade(..) 
 
 | Command | Fields |
 | --- | --- |
-| `New(NewOrder)` | `order_id`, `user_id`, `side`, `price: Option<Price>`, `qty` |
+| `New(NewOrder)` | `order_id`, `user_id`, `side`, `price: Option<Price>`, `qty`, `sent_at` (when D issued it) |
 | `Cancel(ById { user_id, order_id })` | target named by the caller's ids |
 | `Cancel(BySeq(seq))` | target named by the order's seq |
 
@@ -71,6 +75,7 @@ identifies it (D3).
 
 | Reason | When |
 | --- | --- |
+| `Expired` | The command's age (`ts - sent_at`) exceeds `MAX_COMMAND_AGE` |
 | `InvalidPrice` | Limit price is not positive or not a multiple of the tick |
 | `InvalidQty` | Quantity is not positive or not a multiple of the lot |
 | `SelfTradePrevented` | Matching reached a resting order of the same user |
@@ -78,15 +83,17 @@ identifies it (D3).
 
 ## Processing a new order
 
-1. **Validate the grid.** Price first (limit orders only), then quantity. A
+1. **Check expiry.** If `ts - sent_at > MAX_COMMAND_AGE`, emit one
+   `Rejected(Expired)` and stop.
+2. **Validate the grid.** Price first (limit orders only), then quantity. A
    failure emits one `Rejected` event and stops; the order is not accepted and
    never touches the book.
-2. **Emit `Accepted`** with `filled = 0`, `remaining = qty`.
-3. **Match** against the opposite side in price-time priority (best price
+3. **Emit `Accepted`** with `filled = 0`, `remaining = qty`.
+4. **Match** against the opposite side in price-time priority (best price
    first, oldest first within a price). Each match emits, in this order:
    `Trade`, the taker's `PartiallyFilled`/`Filled`, then the maker's.
    Trades execute at the resting order's price.
-4. **Stop conditions and the remainder:**
+5. **Stop conditions and the remainder:**
 
    | Why matching stopped | Remainder |
    | --- | --- |
@@ -100,6 +107,29 @@ identifies it (D3).
    case the `Rejected` event carries the non-zero `filled`.
 
 A market order is matched as a limit order at a price that crosses everything.
+
+## Expiry (D15)
+
+A `New` command that sat too long between D sending it and B journaling it is
+refused, so a late arrival of an order that D already gave up on cannot trade.
+
+- Rule: expired when `ts - sent_at > MAX_COMMAND_AGE`. An age exactly equal to
+  the threshold is accepted; a `sent_at` after `ts` (clock skew) gives a
+  negative age and is accepted. The subtraction saturates, so extreme values
+  cannot overflow.
+- It is a pure comparison of two numbers carried by the command. There is no
+  timer, wait or clock read anywhere on the hot path, so replay reproduces the
+  decision exactly.
+- It is checked before the tick/lot grid, so an old command is reported as
+  `Expired` whatever else is wrong with it.
+- An expired order gets only the `Rejected` event: no `Accepted`, not on the
+  book, unknown to later cancels.
+- Applies to market orders too. Cancels carry no `sent_at` and are never expired.
+- `MAX_COMMAND_AGE` is a compile-time constant in milliseconds. Set the
+  environment variable when building, for example
+  `MAX_COMMAND_AGE=500 cargo build --release`; the default is 1000. A value
+  that is not a non-negative integer fails the build. It must not exceed D's
+  own command timeout.
 
 ## Cancels
 
