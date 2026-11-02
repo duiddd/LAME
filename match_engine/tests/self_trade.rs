@@ -2,7 +2,8 @@
 //! order of the same user. Matching stops there and the remainder is rejected.
 
 use match_engine::{
-    Command, MatchEngine, NewOrder, OrderEvent, Output, Reason, Seq, Side, Status, Trade,
+    Command, MatchEngine, NewOrder, OrderEvent, Output, Reason, Seq, Side, Status, SymbolSpec,
+    Trade,
 };
 
 const ME: u64 = 1;
@@ -66,7 +67,7 @@ const SELF_TRADE: Option<Reason> = Some(Reason::SelfTradePrevented);
 /// aggressive buy for 5. Price-time priority reaches OTHER's order first, so
 /// 2 fill; the next order in line is ME's own, so the other 3 are rejected.
 fn aggressive_buy_hits_own_order(price: Option<i64>) {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     order(&mut e, 1, OTHER, Side::Sell, Some(10), 2);
     order(&mut e, 2, ME, Side::Sell, Some(10), 3);
 
@@ -111,7 +112,7 @@ fn market_order_partially_filled_then_remainder_rejected() {
 #[test]
 fn sell_side_is_symmetric_for_limit_and_market() {
     for price in [Some(10), None] {
-        let mut e = MatchEngine::new();
+        let mut e = MatchEngine::new(SymbolSpec::UNIT);
         order(&mut e, 1, OTHER, Side::Buy, Some(10), 2);
         order(&mut e, 2, ME, Side::Buy, Some(10), 3);
         let out = order(&mut e, 3, ME, Side::Sell, price, 5);
@@ -131,7 +132,7 @@ fn sell_side_is_symmetric_for_limit_and_market() {
 #[test]
 fn rejected_when_the_first_order_in_line_is_its_own() {
     for price in [Some(10), None] {
-        let mut e = MatchEngine::new();
+        let mut e = MatchEngine::new(SymbolSpec::UNIT);
         order(&mut e, 1, ME, Side::Sell, Some(10), 2);
         order(&mut e, 2, OTHER, Side::Sell, Some(10), 2); // behind ME's order
         let out = order(&mut e, 3, ME, Side::Buy, price, 2);
@@ -148,7 +149,7 @@ fn rejected_when_the_first_order_in_line_is_its_own() {
 
 #[test]
 fn own_order_at_a_worse_price_does_not_block_better_prices() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     order(&mut e, 1, OTHER, Side::Sell, Some(10), 2);
     order(&mut e, 2, ME, Side::Sell, Some(11), 2);
     // A limit at 10 never reaches ME's sell at 11, so it is not a self trade.
@@ -166,7 +167,7 @@ fn own_order_at_a_worse_price_does_not_block_better_prices() {
 
 #[test]
 fn resting_own_order_on_the_same_side_is_not_a_conflict() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     order(&mut e, 1, ME, Side::Buy, Some(10), 2);
     let out = order(&mut e, 2, ME, Side::Buy, Some(10), 2);
     assert_eq!(out, [event(2, ME, Status::Accepted, 0, 2, None)]);
@@ -174,7 +175,7 @@ fn resting_own_order_on_the_same_side_is_not_a_conflict() {
 
 #[test]
 fn orders_of_different_users_still_match() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     order(&mut e, 1, OTHER, Side::Sell, Some(10), 2);
     let out = order(&mut e, 2, ME, Side::Buy, Some(10), 2);
     assert!(out.iter().any(|o| matches!(o, Output::Trade(_))));
@@ -189,7 +190,7 @@ fn orders_of_different_users_still_match() {
 
 #[test]
 fn market_order_remainder_is_cancelled_when_liquidity_runs_out() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     order(&mut e, 1, OTHER, Side::Sell, Some(10), 2);
     let out = order(&mut e, 2, ME, Side::Buy, None, 5);
     assert_eq!(

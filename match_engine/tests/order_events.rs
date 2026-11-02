@@ -1,7 +1,8 @@
 //! Order events, sequence numbers, user ids and cancel targeting (D2, D4, D7).
 
 use match_engine::{
-    CancelTarget, Command, MatchEngine, NewOrder, OrderEvent, Output, Reason, Side, Status, Trade,
+    CancelTarget, Command, MatchEngine, NewOrder, OrderEvent, Output, Reason, Side, Status,
+    SymbolSpec, Trade,
 };
 
 fn new(order_id: u64, user_id: u64, side: Side, price: i64, qty: i64) -> Command {
@@ -56,14 +57,14 @@ fn out(e: &mut MatchEngine) -> Vec<Output> {
 
 #[test]
 fn every_new_order_is_accepted_first() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(10, new(7, 1, Side::Sell, 100, 5));
     assert_eq!(out(&mut e), [ev(10, 7, 1, Status::Accepted, 0, 5)]);
 }
 
 #[test]
 fn match_emits_accepted_trade_taker_then_maker() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(1, new(100, 11, Side::Sell, 50, 5));
     out(&mut e);
     e.process(2, new(200, 22, Side::Buy, 50, 3));
@@ -87,7 +88,7 @@ fn match_emits_accepted_trade_taker_then_maker() {
 
 #[test]
 fn filled_counts_accumulate_across_trades() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(1, new(1, 1, Side::Sell, 10, 2));
     e.process(2, new(2, 2, Side::Sell, 10, 2));
     out(&mut e);
@@ -102,7 +103,7 @@ fn filled_counts_accumulate_across_trades() {
 
 #[test]
 fn cancel_by_user_and_order_id() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(1, new(9, 5, Side::Buy, 10, 4));
     out(&mut e);
     e.process(
@@ -117,7 +118,7 @@ fn cancel_by_user_and_order_id() {
 
 #[test]
 fn same_order_id_for_different_users_is_distinct() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(1, new(1, 100, Side::Buy, 10, 1));
     e.process(2, new(1, 200, Side::Buy, 10, 1));
     out(&mut e);
@@ -143,7 +144,7 @@ fn same_order_id_for_different_users_is_distinct() {
 
 #[test]
 fn cancel_by_reused_id_targets_the_latest_resting_order() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(1, new(1, 1, Side::Buy, 10, 1));
     e.process(2, new(1, 1, Side::Buy, 10, 1)); // same (user, id): undefined upstream, latest wins
     out(&mut e);
@@ -159,7 +160,7 @@ fn cancel_by_reused_id_targets_the_latest_resting_order() {
 
 #[test]
 fn cancel_of_unknown_order_is_rejected() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(
         1,
         Command::Cancel(CancelTarget::ById {
@@ -179,7 +180,7 @@ fn cancel_of_unknown_order_is_rejected() {
 
 #[test]
 fn cancel_of_finished_order_is_rejected_as_not_found() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(1, new(1, 1, Side::Sell, 10, 1));
     e.process(2, new(2, 2, Side::Buy, 10, 1)); // both filled
     e.process(3, new(3, 3, Side::Buy, 9, 1));
@@ -207,7 +208,7 @@ fn cancel_of_finished_order_is_rejected_as_not_found() {
 
 #[test]
 fn rejected_cancel_leaves_the_book_untouched() {
-    let mut e = MatchEngine::new();
+    let mut e = MatchEngine::new(SymbolSpec::UNIT);
     e.process(1, new(1, 1, Side::Sell, 10, 2));
     e.process(2, Command::Cancel(CancelTarget::BySeq(99)));
     out(&mut e);
@@ -229,7 +230,7 @@ fn replaying_the_same_commands_gives_identical_outputs() {
         (5, new(4, 4, Side::Sell, 9, 2)),
     ];
     let run = || {
-        let mut e = MatchEngine::new();
+        let mut e = MatchEngine::new(SymbolSpec::UNIT);
         for (seq, c) in cmds {
             e.process(seq, c);
         }

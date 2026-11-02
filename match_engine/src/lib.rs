@@ -11,5 +11,5 @@ pub use book::OrderBook;
 pub use engine::MatchEngine;
 pub use types::{
     CancelTarget, Command, NewOrder, Order, OrderEvent, OrderId, Output, Price, Qty, Reason, Seq,
-    Side, Status, Trade, UserId,
+    Side, Status, SymbolSpec, Trade, UserId,
 };

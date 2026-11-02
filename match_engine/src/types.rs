@@ -8,6 +8,29 @@ pub type UserId = u64;
 /// identified by the `seq` of its `NewOrder` record.
 pub type Seq = u64;
 
+/// Grid of one trading pair: prices are multiples of `tick`, quantities are
+/// multiples of `lot` (D5).
+///
+/// TODO: load tick/lot per symbol from the mounted config file (D23). The file
+/// format is not decided yet, so callers build this by hand for now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SymbolSpec {
+    pub tick: Price,
+    pub lot: Qty,
+}
+
+impl SymbolSpec {
+    /// Panics if `tick` or `lot` is not positive: a bad config must stop
+    /// start-up, not reach the matcher.
+    pub fn new(tick: Price, lot: Qty) -> Self {
+        assert!(tick > 0 && lot > 0, "tick and lot must be positive");
+        Self { tick, lot }
+    }
+
+    /// Every integer price and quantity is on the grid.
+    pub const UNIT: SymbolSpec = SymbolSpec { tick: 1, lot: 1 };
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
     Buy,
@@ -68,6 +91,10 @@ pub enum Reason {
     /// The order met a resting order of the same user; its remainder is
     /// rejected instead of trading (D24).
     SelfTradePrevented,
+    /// Limit price is not positive or not a multiple of the tick (D5).
+    InvalidPrice,
+    /// Quantity is not positive or not a multiple of the lot (D5).
+    InvalidQty,
 }
 
 /// The outcome for one order. For a rejected cancel only the ids the cancel

@@ -1,19 +1,24 @@
 use crate::book::OrderBook;
 use crate::types::{
     CancelTarget, Command, NewOrder, Order, OrderEvent, Output, Price, Reason, Seq, Side, Status,
+    SymbolSpec,
 };
 
 /// One book plus its output queue. `process` is a pure function of the
 /// command sequence it has been given.
-#[derive(Default)]
 pub struct MatchEngine {
+    spec: SymbolSpec,
     book: OrderBook,
     outputs: Vec<Output>,
 }
 
 impl MatchEngine {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(spec: SymbolSpec) -> Self {
+        Self {
+            spec,
+            book: OrderBook::default(),
+            outputs: Vec::new(),
+        }
     }
 
     /// Applies one command. `seq` is the journal's sequence number for it; for
@@ -34,7 +39,32 @@ impl MatchEngine {
         self.outputs.drain(..)
     }
 
+    /// Why `new` is off the symbol's grid, if it is (D5). Price is checked
+    /// first; a market order has no price to check.
+    fn grid_violation(&self, new: &NewOrder) -> Option<Reason> {
+        let SymbolSpec { tick, lot } = self.spec;
+        if matches!(new.price, Some(p) if p <= 0 || p % tick != 0) {
+            Some(Reason::InvalidPrice)
+        } else if new.qty <= 0 || new.qty % lot != 0 {
+            Some(Reason::InvalidQty)
+        } else {
+            None
+        }
+    }
+
     fn new_order(&mut self, seq: Seq, new: NewOrder) {
+        if let Some(reason) = self.grid_violation(&new) {
+            self.outputs.push(Output::Order(OrderEvent {
+                order_seq: Some(seq),
+                order_id: Some(new.order_id),
+                user_id: Some(new.user_id),
+                status: Status::Rejected,
+                filled: 0,
+                remaining: new.qty,
+                reason: Some(reason),
+            }));
+            return;
+        }
         self.outputs.push(Output::Order(OrderEvent {
             order_seq: Some(seq),
             order_id: Some(new.order_id),

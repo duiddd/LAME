@@ -4,7 +4,9 @@
 //! engine.
 #![allow(dead_code)]
 
-use match_engine::{CancelTarget, Command, MatchEngine, NewOrder, Output, Side, Status};
+use match_engine::{
+    CancelTarget, Command, MatchEngine, NewOrder, Output, Side, Status, SymbolSpec,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Request {
@@ -115,7 +117,6 @@ pub fn format_event(e: &LineEvent) -> String {
 /// Drives the engine from CSV requests: sequence numbers are handed out
 /// in arrival order and each order's `user_id` equals its `order_id`, so the
 /// tests never involve two orders of one user.
-#[derive(Default)]
 pub struct Harness {
     pub engine: MatchEngine,
     next_seq: u64,
@@ -123,7 +124,10 @@ pub struct Harness {
 
 impl Harness {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            engine: MatchEngine::new(SymbolSpec::UNIT),
+            next_seq: 0,
+        }
     }
 
     fn seq(&mut self) -> u64 {
