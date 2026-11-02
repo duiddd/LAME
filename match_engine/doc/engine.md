@@ -160,6 +160,39 @@ What the engine does **not** do, because it belongs to the journal layer
 - rejecting new orders that arrive after the close with `Rejected(EndOfDay)`;
 - switching to the next day's event store and resetting `seq`.
 
+## Market-data snapshot (D6)
+
+`engine.snapshot()` returns a `Snapshot` (cheap, `Copy`, comparable):
+
+| Field | Meaning |
+| --- | --- |
+| `bids`, `asks` | Best three levels per side, best first. Each is `{price, qty}` with `qty` the total remaining quantity at that price; missing levels are `None` |
+| `last_price` | Price of the most recent trade today; `None` before the first trade |
+| `volume` | Total quantity traded today, in size units, not currency |
+| `last_ms` | Unix ms at which this view was generated (see below) |
+
+- Level quantities are kept as running totals per price level, updated on
+  every rest, fill and removal, so taking a snapshot does not walk the order
+  lists.
+- `last_price` and `volume` are reset by `DayClose` together with the book.
+- **`last_ms`** is the journal `ts` of the command that last changed the view
+  (a rest, a trade, a removal or a day close). To stay strictly increasing it
+  is `max(ts, previous + 1)`, so commands in the same millisecond, or a clock
+  that steps back, still give a larger value. Commands that change nothing
+  (rejections, unknown cancels) do not generate a snapshot and leave it
+  alone. It is 0 before the first change and does not rewind at `DayClose`.
+  It comes from the commands' timestamps, so the engine still reads no clock
+  and the value is reproducible on replay.
+- `Snapshot::same_view` compares everything except `last_ms`; a publisher that
+  skips unchanged snapshots uses it.
+- `Snapshot::into_market_data()` gives the wire message (`MarketData`, JSON):
+  `bids` and `asks` as lists of `{price, qty}` with only the levels that
+  exist, `last_price` (null if none), `volume`, `last_ms`.
+
+Delivering snapshots (the bounded lock-free queue, the publisher thread,
+rate limiting, heartbeat, the `/md/<symbol>` WebSocket) is not part of the
+engine; see `status.md`.
+
 ## Cancels
 
 - `ById` resolves through a `(user_id, order_id)` index that holds **resting

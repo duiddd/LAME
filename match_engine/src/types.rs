@@ -141,3 +141,69 @@ pub enum Output {
     Order(OrderEvent),
     Trade(Trade),
 }
+
+/// Number of price levels per side in a snapshot (D6).
+pub const DEPTH: usize = 3;
+
+/// One price level of a snapshot: the price and the total remaining quantity
+/// of every order resting there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct BookLevel {
+    pub price: Price,
+    pub qty: Qty,
+}
+
+/// The engine's view for market data (D6): the best three levels per side,
+/// the last trade price and the day's traded volume. Self-contained and cheap
+/// to copy and compare, so the publisher can skip a snapshot equal to the last
+/// one it sent (see `same_view`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    /// Best (highest) price first.
+    pub bids: [Option<BookLevel>; DEPTH],
+    /// Best (lowest) price first.
+    pub asks: [Option<BookLevel>; DEPTH],
+    /// Price of the most recent trade today; `None` before the first trade.
+    pub last_price: Option<Price>,
+    /// Total quantity traded today, in size units (not currency).
+    pub volume: Qty,
+    /// Unix milliseconds at which this view was generated: the `ts` of the
+    /// command that last changed it, pushed forward by at least 1 ms over the
+    /// previous snapshot so it is strictly increasing (D6). It comes from the
+    /// journal's timestamps, not from a clock. 0 before the first change.
+    pub last_ms: Timestamp,
+}
+
+impl Snapshot {
+    /// True if the market view is the same, ignoring `last_ms`. A publisher
+    /// that skips unchanged snapshots (D6) compares with this.
+    pub fn same_view(&self, other: &Snapshot) -> bool {
+        self.bids == other.bids
+            && self.asks == other.asks
+            && self.last_price == other.last_price
+            && self.volume == other.volume
+    }
+
+    /// The message that goes on the wire. Levels are listed best first and
+    /// only as many as exist.
+    pub fn into_market_data(self) -> MarketData {
+        MarketData {
+            bids: self.bids.into_iter().flatten().collect(),
+            asks: self.asks.into_iter().flatten().collect(),
+            last_price: self.last_price,
+            volume: self.volume,
+            last_ms: self.last_ms,
+        }
+    }
+}
+
+/// A market-data message as sent to clients (JSON, D17). Levels are listed best
+/// first and only as many as exist.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct MarketData {
+    pub bids: Vec<BookLevel>,
+    pub asks: Vec<BookLevel>,
+    pub last_price: Option<Price>,
+    pub volume: Qty,
+    pub last_ms: Timestamp,
+}

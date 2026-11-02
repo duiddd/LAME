@@ -1,7 +1,7 @@
 use crate::book::OrderBook;
 use crate::types::{
-    CancelTarget, Command, NewOrder, Order, OrderEvent, Output, Price, Reason, Seq, Side, Status,
-    SymbolSpec, Timestamp,
+    CancelTarget, Command, NewOrder, Order, OrderEvent, Output, Price, Reason, Seq, Side, Snapshot,
+    Status, SymbolSpec, Timestamp,
 };
 
 /// Longest a `NewOrder` may spend between `sent_at` and the journal's `ts`
@@ -43,6 +43,9 @@ const fn parse_age(value: Option<&str>) -> Timestamp {
 /// command sequence it has been given.
 pub struct MatchEngine {
     spec: SymbolSpec,
+    /// `last_ms` of the latest snapshot; `None` before the book first changes.
+    /// Kept here, not in the book, so a day close does not rewind it.
+    view_ms: Option<Timestamp>,
     book: OrderBook,
     outputs: Vec<Output>,
 }
@@ -51,6 +54,7 @@ impl MatchEngine {
     pub fn new(spec: SymbolSpec) -> Self {
         Self {
             spec,
+            view_ms: None,
             book: OrderBook::default(),
             outputs: Vec::new(),
         }
@@ -61,10 +65,32 @@ impl MatchEngine {
     /// identity. `ts` is only compared with the command's own `sent_at`, so
     /// the result depends on the inputs alone, never on a clock.
     pub fn process(&mut self, seq: Seq, ts: Timestamp, cmd: Command) {
+        self.apply(seq, ts, cmd);
+        // A command that changed the market view generates a new snapshot at
+        // its `ts`, kept strictly after the previous one (D6).
+        if self.book.take_dirty() {
+            self.view_ms = Some(match self.view_ms {
+                None => ts,
+                Some(prev) => ts.max(prev.saturating_add(1)),
+            });
+        }
+    }
+
+    fn apply(&mut self, seq: Seq, ts: Timestamp, cmd: Command) {
         match cmd {
             Command::New(new) => self.new_order(seq, ts, new),
             Command::Cancel(target) => self.cancel(target),
             Command::DayClose => self.book.close_day(&mut self.outputs),
+        }
+    }
+
+    /// Current market-data view: best three levels per side, last price, the
+    /// day's volume and the time it was generated. Cheap; call it whenever a command may have changed
+    /// the book. It is a function of the commands processed so far.
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            last_ms: self.view_ms.unwrap_or(0),
+            ..self.book.snapshot()
         }
     }
 

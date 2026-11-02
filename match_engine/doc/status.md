@@ -12,6 +12,8 @@
   order and the remainder is rejected.
 - Market orders never rest; leftover quantity is cancelled.
 - Tick/lot grid validation (D5) with `InvalidPrice` / `InvalidQty`.
+- Market-data snapshot (D6): best three levels with aggregated quantity,
+  `last_price`, `volume`, and `last_ms` generated from the command `ts`.
 - End-of-day `DayClose`: cancels all resting orders in `seq` order with
   `EndOfDay`, then fully resets the book (D22).
 - Expiry of stale `New` commands (D15): a pure timestamp comparison against a
@@ -22,7 +24,7 @@
 | Item | Where it is specified |
 | --- | --- |
 | Journal side of end of day: judging 09:30-16:00 from the epoch timestamp, writing `DayClose`, rejecting later orders with `EndOfDay`, switching to the next day's store | D22, journal layer |
-| Top-three-level snapshot with `last_price` | D6 |
+| Delivering snapshots: bounded lock-free queue from the engine task, publisher thread, 1 ms rate limit, skip-unchanged, heartbeat, `/md/<symbol>` WebSocket, no publishing during recovery | D6, D14 |
 | Loading tick/lot per symbol from the mounted config file | D23. `SymbolSpec` is built by hand; see the TODO in `src/types.rs` |
 | Unknown-symbol rejection | Connection layer, one engine instance per symbol |
 | Event journal (SQLite), journal thread, replay and output comparison | D1, D9–D12, D19, D20 |
@@ -32,6 +34,11 @@
 | Bots and load tests | Separate image |
 
 ## Points to be aware of
+
+- Heartbeat (D6): a re-sent snapshot must carry a larger `last_ms` or clients
+  will drop it as not newer. The engine only produces a new `last_ms` when the
+  view changes, so the heartbeat either takes a fresh timestamp from the
+  publisher's clock, or clients drop only strictly older snapshots. Undecided.
 
 - The trading session is 09:30 to 16:00 in Dublin time (Europe/Dublin), judged
   from the epoch-millisecond timestamp by the journal layer, which is not

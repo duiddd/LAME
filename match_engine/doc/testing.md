@@ -16,6 +16,7 @@ cargo fmt --check
 | `tests/validation.rs` | On-grid acceptance, price off tick, non-positive price, quantity off lot, non-positive quantity, market order checks quantity only, price reported before quantity, rejected order never reaches the book, invalid `SymbolSpec` panics |
 | `tests/expiry.rs` | Age exactly at the threshold accepted, one past it expired, fresh orders, `sent_at` after receipt not expired, extreme timestamps without overflow, market orders expire, expiry checked before the grid, expired order neither trades nor rests, cancels never expire, replay determinism |
 | `tests/day_close.rs` | Cancels in `seq` order regardless of price/side, partially filled orders report `filled`/`remaining`, empty book emits nothing, full reset (old orders unreachable on both sides), engine reusable with `seq` restarting at 1, repeated close, replay determinism |
+| `tests/snapshot.rs` | Empty book, fewer than three levels, best three only and best first, per-price aggregation, partial fills, exhausted levels, sweeps, `volume` in size units, cancels at head/middle/tail, rejections leaving the view untouched, day-close reset, `last_ms` equal to the command `ts`, strictly increasing for equal or backwards `ts`, unchanged by rejected commands, determinism, JSON shape |
 | `tests/csv_protocol.rs` | The CSV request parser and output formatter used by the test adapter |
 | `tests/datasets.rs` | Dataset regression, see below |
 

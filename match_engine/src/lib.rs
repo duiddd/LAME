@@ -10,6 +10,6 @@ pub mod types;
 pub use book::OrderBook;
 pub use engine::{MatchEngine, MAX_COMMAND_AGE};
 pub use types::{
-    CancelTarget, Command, NewOrder, Order, OrderEvent, OrderId, Output, Price, Qty, Reason, Seq,
-    Side, Status, SymbolSpec, Timestamp, Trade, UserId,
+    BookLevel, CancelTarget, Command, MarketData, NewOrder, Order, OrderEvent, OrderId, Output,
+    Price, Qty, Reason, Seq, Side, Snapshot, Status, SymbolSpec, Timestamp, Trade, UserId, DEPTH,
 };

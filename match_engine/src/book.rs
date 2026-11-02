@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::types::{
-    Order, OrderEvent, OrderId, Output, Price, Reason, Seq, Side, Status, Trade, UserId,
+    BookLevel, Order, OrderEvent, OrderId, Output, Price, Qty, Reason, Seq, Side, Snapshot, Status,
+    Trade, UserId, DEPTH,
 };
 
 const NIL: u32 = u32::MAX;
@@ -18,6 +19,9 @@ struct Node {
 struct Level {
     head: u32,
     tail: u32,
+    /// Sum of the remaining quantity of the orders at this price, kept up to
+    /// date on every rest, fill and removal.
+    total_qty: Qty,
 }
 
 #[derive(Default)]
@@ -31,11 +35,48 @@ pub struct OrderBook {
     /// `(user_id, order_id)` -> seq, resting orders only (D2). Callers must not
     /// reuse an id within a day; if they do, the latest resting order wins.
     by_key: HashMap<(UserId, OrderId), Seq>,
+    /// Price of the most recent trade, `None` before the first one.
+    last_price: Option<Price>,
+    /// Total quantity traded since the book was last reset.
+    volume: Qty,
+    /// Set whenever the market view may have changed; cleared by `take_dirty`.
+    dirty: bool,
 }
 
 impl OrderBook {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Best `DEPTH` levels per side with their aggregated quantity, plus the
+    /// last trade price and the traded volume.
+    pub fn snapshot(&self) -> Snapshot {
+        fn level((price, l): (&Price, &Level)) -> BookLevel {
+            BookLevel {
+                price: *price,
+                qty: l.total_qty,
+            }
+        }
+        let mut bids = [None; DEPTH];
+        for (slot, entry) in bids.iter_mut().zip(self.bids.iter().rev()) {
+            *slot = Some(level(entry));
+        }
+        let mut asks = [None; DEPTH];
+        for (slot, entry) in asks.iter_mut().zip(self.asks.iter()) {
+            *slot = Some(level(entry));
+        }
+        Snapshot {
+            bids,
+            asks,
+            last_price: self.last_price,
+            volume: self.volume,
+            last_ms: 0,
+        }
+    }
+
+    /// Returns whether the market view may have changed since the last call.
+    pub fn take_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.dirty)
     }
 
     pub fn contains(&self, seq: Seq) -> bool {
@@ -86,6 +127,7 @@ impl OrderBook {
             }
         }
         *self = OrderBook::default();
+        self.dirty = true;
     }
 
     /// Removes a resting order by `(user_id, order_id)`.
@@ -100,12 +142,14 @@ impl OrderBook {
         let idx = self.index.remove(&seq)?;
         let removed = self.slab[idx as usize].order;
         self.unindex_key(&removed);
+        self.dirty = true;
         let (side, price) = (removed.side, removed.price);
         let levels = match side {
             Side::Buy => &mut self.bids,
             Side::Sell => &mut self.asks,
         };
         let mut level = levels[&price];
+        level.total_qty -= removed.qty;
         let (prev, next) = {
             let n = &self.slab[idx as usize];
             (n.prev, n.next)
@@ -171,6 +215,10 @@ impl OrderBook {
                 order.filled += traded;
                 node.order.qty -= traded;
                 node.order.filled += traded;
+                level.total_qty -= traded;
+                self.last_price = Some(price);
+                self.volume = self.volume.saturating_add(traded);
+                self.dirty = true;
 
                 out.push(Output::Trade(Trade {
                     price,
@@ -239,7 +287,9 @@ impl OrderBook {
         let level = levels.entry(order.price).or_insert(Level {
             head: NIL,
             tail: NIL,
+            total_qty: 0,
         });
+        level.total_qty += order.qty;
         if level.tail == NIL {
             level.head = idx;
         } else {
@@ -247,6 +297,7 @@ impl OrderBook {
             self.slab[idx as usize].prev = level.tail;
         }
         level.tail = idx;
+        self.dirty = true;
         self.index.insert(order.seq, idx);
         self.by_key
             .insert((order.user_id, order.order_id), order.seq);
