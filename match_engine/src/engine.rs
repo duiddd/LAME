@@ -43,6 +43,9 @@ const fn parse_age(value: Option<&str>) -> Timestamp {
 /// command sequence it has been given.
 pub struct MatchEngine {
     spec: SymbolSpec,
+    /// If set, a pure predicate on the command `ts`: new orders outside the
+    /// session are rejected as `EndOfDay` (D22). `None` means always open.
+    session: Option<fn(Timestamp) -> bool>,
     /// `last_ms` of the latest snapshot; `None` before the book first changes.
     /// Kept here, not in the book, so a day close does not rewind it.
     view_ms: Option<Timestamp>,
@@ -54,10 +57,19 @@ impl MatchEngine {
     pub fn new(spec: SymbolSpec) -> Self {
         Self {
             spec,
+            session: None,
             view_ms: None,
             book: OrderBook::default(),
             outputs: Vec::new(),
         }
+    }
+
+    /// Rejects new orders whose `ts` is outside the trading session, using
+    /// `open`, a pure function of the timestamp (for example
+    /// `session::in_session`). Without it the engine is always open.
+    pub fn with_session(mut self, open: fn(Timestamp) -> bool) -> Self {
+        self.session = Some(open);
+        self
     }
 
     /// Applies one command. `seq` and `ts` are the journal's sequence number
@@ -117,11 +129,13 @@ impl MatchEngine {
     }
 
     /// Why `new` must be refused before it reaches the book, if it must.
-    /// Expiry is checked first (D15), then the grid (D5).
+    /// Expiry is checked first (D15), then the session (D22), then the grid (D5).
     fn refusal(&self, ts: Timestamp, new: &NewOrder) -> Option<Reason> {
         // `sent_at` after `ts` (clock skew) gives a negative age: not expired.
         if ts.saturating_sub(new.sent_at) > MAX_COMMAND_AGE {
             Some(Reason::Expired)
+        } else if self.session.is_some_and(|open| !open(ts)) {
+            Some(Reason::EndOfDay)
         } else {
             self.grid_violation(new)
         }

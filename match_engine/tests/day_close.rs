@@ -183,3 +183,56 @@ fn replay_gives_identical_outputs() {
     };
     assert_eq!(run(), run());
 }
+
+#[test]
+fn orders_outside_the_session_are_rejected_as_end_of_day() {
+    fn open_only_in_the_middle(ts: Timestamp) -> bool {
+        (1_000..2_000).contains(&ts)
+    }
+    let mut e = MatchEngine::new(SymbolSpec::UNIT).with_session(open_only_in_the_middle);
+    let send = |e: &mut MatchEngine, seq: u64, ts: Timestamp| {
+        e.process(
+            seq,
+            ts,
+            Command::New(NewOrder {
+                order_id: seq,
+                user_id: seq,
+                side: Side::Buy,
+                price: Some(10),
+                qty: 1,
+                sent_at: ts,
+            }),
+        );
+        out(e)
+    };
+    let rejected = |seq: u64| {
+        vec![Output::Order(OrderEvent {
+            order_seq: Some(seq),
+            order_id: Some(seq),
+            user_id: Some(seq),
+            status: Status::Rejected,
+            filled: 0,
+            remaining: 1,
+            reason: Some(Reason::EndOfDay),
+        })]
+    };
+    assert_eq!(send(&mut e, 1, 999), rejected(1)); // before the session
+    assert_eq!(send(&mut e, 2, 2_000), rejected(2)); // at and after the close
+    let in_session = send(&mut e, 3, 1_500);
+    assert!(matches!(
+        in_session.as_slice(),
+        [Output::Order(OrderEvent {
+            status: Status::Accepted,
+            ..
+        })]
+    ));
+    // Cancels are not gated by the session.
+    e.process(4, 5_000, Command::Cancel(CancelTarget::BySeq(3)));
+    assert!(matches!(
+        out(&mut e).as_slice(),
+        [Output::Order(OrderEvent {
+            status: Status::Cancelled,
+            ..
+        })]
+    ));
+}

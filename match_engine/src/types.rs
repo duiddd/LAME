@@ -82,7 +82,8 @@ pub enum Command {
     DayClose,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Status {
     Accepted,
     PartiallyFilled,
@@ -91,7 +92,8 @@ pub enum Status {
     Rejected,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Reason {
     /// Cancel of an order that is not resting: unknown, filled or cancelled (D7).
     OrderNotFound,

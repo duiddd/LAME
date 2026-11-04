@@ -9,11 +9,17 @@ what lets B rebuild its state by replaying the journal (D1, D10, D18).
 
 ```
 src/
-├── lib.rs      public exports
+├── lib.rs      public exports (this file covers the core: types, book, engine)
 ├── types.rs    ids, Order, commands, OrderEvent / Trade / Output, SymbolSpec
 ├── book.rs     OrderBook: price levels, matching, resting, removal
 ├── engine.rs   MatchEngine: validation, command dispatch, output queue
-└── main.rs     placeholder binary
+├── session.rs  Dublin session clock: pure functions of a timestamp
+├── wire.rs     JSON messages on the D channel
+├── store.rs    SQLite event store
+├── journal.rs, conn.rs, engine_task.rs, md.rs, http.rs, eod.rs,
+│   recovery.rs, service.rs, runtime.rs, metrics.rs, config.rs
+│               the running service, see runtime.md
+└── main.rs     the binary: logging, signals, `--healthcheck`
 ```
 
 ## Public API
@@ -78,7 +84,7 @@ identifies it (D3).
 | Reason | When |
 | --- | --- |
 | `Expired` | The command's age (`ts - sent_at`) exceeds `MAX_COMMAND_AGE` |
-| `EndOfDay` | A resting order cancelled at close (`Cancelled`), or a new order that arrived after close (`Rejected`, produced by the journal layer) |
+| `EndOfDay` | A resting order cancelled at close (`Cancelled`), or a new order outside the session (`Rejected`) |
 | `InvalidPrice` | Limit price is not positive or not a multiple of the tick |
 | `InvalidQty` | Quantity is not positive or not a multiple of the lot |
 | `SelfTradePrevented` | Matching reached a resting order of the same user |
@@ -88,15 +94,19 @@ identifies it (D3).
 
 1. **Check expiry.** If `ts - sent_at > MAX_COMMAND_AGE`, emit one
    `Rejected(Expired)` and stop.
-2. **Validate the grid.** Price first (limit orders only), then quantity. A
+2. **Check the session.** If the engine was built `with_session` and the
+   predicate says `ts` is outside the session, emit `Rejected(EndOfDay)` and
+   stop. The service uses `session::in_session` (09:30 to 16:00 Dublin time);
+   without it the engine is always open.
+3. **Validate the grid.** Price first (limit orders only), then quantity. A
    failure emits one `Rejected` event and stops; the order is not accepted and
    never touches the book.
-3. **Emit `Accepted`** with `filled = 0`, `remaining = qty`.
-4. **Match** against the opposite side in price-time priority (best price
+4. **Emit `Accepted`** with `filled = 0`, `remaining = qty`.
+5. **Match** against the opposite side in price-time priority (best price
    first, oldest first within a price). Each match emits, in this order:
    `Trade`, the taker's `PartiallyFilled`/`Filled`, then the maker's.
    Trades execute at the resting order's price.
-5. **Stop conditions and the remainder:**
+6. **Stop conditions and the remainder:**
 
    | Why matching stopped | Remainder |
    | --- | --- |
@@ -150,15 +160,12 @@ a normal input of the engine, so replay reproduces the close exactly.
 
 A `DayClose` on an empty book, or a second one in a row, emits nothing.
 
-What the engine does **not** do, because it belongs to the journal layer
-(not built yet):
-
-- deciding that the day is over: the session is 09:30 to 16:00 in Dublin time
-  (Europe/Dublin), judged from the epoch-millisecond timestamp. Weekends and
-  holidays are not handled at this layer. When the time is reached the journal
-  writes `DayClose` first, then lets the engine cancel;
-- rejecting new orders that arrive after the close with `Rejected(EndOfDay)`;
-- switching to the next day's event store and resetting `seq`.
+What the engine does **not** do, because it belongs to the journal (see
+`runtime.md`): deciding that the day is over (16:00 Dublin time, judged from
+the epoch-millisecond timestamp; weekends and holidays are not handled at this
+layer), writing `DayClose` first, and switching to the next day's event store
+with `seq` restarting at 1. The rejection of new orders outside the session is
+the engine's own, through the session predicate described above.
 
 ## Market-data snapshot (D6)
 

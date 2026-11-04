@@ -17,6 +17,14 @@ cargo fmt --check
 | `tests/expiry.rs` | Age exactly at the threshold accepted, one past it expired, fresh orders, `sent_at` after receipt not expired, extreme timestamps without overflow, market orders expire, expiry checked before the grid, expired order neither trades nor rests, cancels never expire, replay determinism |
 | `tests/day_close.rs` | Cancels in `seq` order regardless of price/side, partially filled orders report `filled`/`remaining`, empty book emits nothing, full reset (old orders unreachable on both sides), engine reusable with `seq` restarting at 1, repeated close, replay determinism |
 | `tests/snapshot.rs` | Empty book, fewer than three levels, best three only and best first, per-price aggregation, partial fills, exhausted levels, sweeps, `volume` in size units, cancels at head/middle/tail, rejections leaving the view untouched, day-close reset, `last_ms` equal to the command `ts`, strictly increasing for equal or backwards `ts`, unchanged by rejected commands, determinism, JSON shape |
+| `tests/session.rs` | Daylight-saving rules for several years, the 09:30 to 16:00 window in winter and summer, day ids across local midnight, the next close across clock changes |
+| `tests/pipeline.rs` | The service end to end over a real WebSocket: a trade, commands and outputs in one total order in the store, resume from the start and the middle, outputs written with D disconnected, a new connection replacing the old, bad frames, handshake errors, cancel by id and seq, independent pairs with their own grid, expiry from the journal timestamp, shutdown writing everything queued |
+| `tests/market_data.rs` | Current view on connect, snapshots with volume and generation time, separate streams per pair, best three levels, `last_ms` ordering, unknown pair refused, heartbeat, a subscriber that never reads |
+| `tests/http.rs` | `/healthz`, nothing served while recovering, unhealthy once a stop begins, metrics, the allow-list, the `--healthcheck` logic, the outbound queue closing the connection when full |
+| `tests/end_of_day.rs` | The timer's delay, cancels in `seq` order at the close, rejection after the close and before the open, a command closing the day without the timer, one `DayClose` only, rollover to the next day's store, resume covering only the current day |
+| `tests/recovery.rs` | Restart restoring the book, numbering and market data; outputs a crash left unwritten; each kind of disagreement refusing to start; a second instance refused; start after the close; a day never closed; commands waiting for the next day keeping their order |
+| `tests/resend.rs` | A long resend (12 000 records through a queue of 8) with D not reading: the connection survives, everything arrives, new orders, trades and cancels are handled while the resend is in progress |
+| `tests/process.rs` | The real binary: `SIGTERM`, `SIGKILL` then restart, `--healthcheck`, refusing to start twice or without a symbol list |
 | `tests/csv_protocol.rs` | The CSV request parser and output formatter used by the test adapter |
 | `tests/datasets.rs` | Dataset regression, see below |
 
@@ -47,3 +55,9 @@ Without `LAME_DATASET_DIR` the test prints a message and passes. The
 In release mode the 10-million-line mixed dataset takes a few seconds on a
 laptop; that figure includes reading and parsing the file, so it is not a
 per-order latency.
+
+The service tests move a fake clock by hand (`TestClock` in
+`tests/support/mod.rs`) and wait only by awaiting messages. The two exceptions
+are the market-data heartbeat test, which shortens the heartbeat to 30 ms, and
+`tests/process.rs`, which runs the real binary on the real clock and so counts
+records without depending on whether an order was inside the session.
