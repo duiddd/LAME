@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LAME Service C — Compact Chat Box Widget (for Service A)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #090d16;
+      color: #e2e8f0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    #lame-ai-chatbox {
+      height: 100vh;
+      width: 100%;
+    }
+    .lame-c-widget-root {
+      max-height: 100vh !important;
+      height: 100vh !important;
+      border-radius: 0 !important;
+      border: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="lame-ai-chatbox"></div>
+  <script src="/static/lame-chat-widget.js"></script>
+</body>
+</html>

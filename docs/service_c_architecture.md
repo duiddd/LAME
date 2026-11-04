@@ -124,31 +124,53 @@ Service C exposes FastAPI REST endpoints on port `8080`:
 
 | Endpoint | Method | Payload / Query | Description |
 |---|---|---|---|
-| `/api/chat` | `POST` | `{"query": str, "symbol": Optional[str]}` | Ask market analyst question. Returns structured JSON answer, citations, freshness, and refusal flag. |
-| `/api/news` | `GET` | `?symbol=BTC&limit=10` | Retrieve recent ingested news items. |
-| `/api/dlq` | `GET` | — | Inspect current contents of the Dead Letter Queue. |
-| `/healthz` | `GET` | — | Health check (returns DB, RabbitMQ, and Ollama status). |
+| `/api/chat` (or `/ask`) | `POST` | `{"query": str, "symbol": Optional[str]}` | Ask market analyst question. Returns structured JSON answer, citations, freshness, and refusal flag. |
+| `/api/news` | `GET` | `?symbol=BTC-USDT&limit=15` | Retrieve recent ingested news items (with `index_version` and `sanitized` flags). |
+| `/api/dlq` | `GET` | `?limit=50` | Inspect current contents of the Dead Letter Queue (`news.dlq`). |
+| `/api/market` | `GET` | — | Inspect latest cached Service B top-3 depth and `last_price` snapshots. |
+| `/api/replay` | `POST` | — | Trigger idempotent scripted news replay from `seed/news_script.jsonl`. |
+| `/api/metrics/summary` | `GET` | — | JSON summary of AI metrics (latency p50/p95, tokens, refusal rate, DLQ count). |
+| `/` (or `/chatbot`) | `GET` | — | Dedicated full-page Service C AI Market Analyst & News Terminal HTML UI. |
+| `/widget` | `GET` | — | Compact embeddable Chat Box HTML view built for Service A's frontend. |
+| `/healthz` | `GET` | — | Health check (returns DB, RabbitMQ, Service B cache, and Ollama status). |
 | `/metrics` | `GET` | — | Prometheus metrics scrape endpoint. |
 
 #### Structured Chat Response Schema
 ```json
 {
-  "answer": "BTC dropped by 2.4% following regulatory scrutiny announcement regarding regional spot exchanges.",
-  "status": "ANSWERED", // "ANSWERED" | "INSUFFICIENT_EVIDENCE" | "REJECTED_UNSAFE"
+  "answer": "Current BTC-USDT snapshot from Service B is 64,250 USDT (best bid 64,245, best ask 64,255) (price freshness: 0.4s ago). BTC-USDT declined by 2.4% over the past 15 minutes after the regional financial authority announced stricter reserve audit timelines for offshore spot exchanges. [news_20261023_001]",
+  "status": "ANSWERED",
+  "refusal_reason": null,
   "citations": [
     {
       "news_id": "news_20261023_001",
-      "headline": "Regulatory Body Issues Warning to Unlicensed Exchanges",
-      "timestamp_ms": 1729692000000
+      "headline": "Regional Financial Regulator Issues Compliance Warning to Unlicensed Spot Venues",
+      "timestamp_ms": 1729692000000,
+      "news_freshness_seconds": 12.4,
+      "bm25_score": 2.4105
     }
   ],
   "market_context": {
     "symbol": "BTC-USDT",
     "last_price": 64250,
+    "best_bid": 64245,
+    "best_ask": 64255,
     "price_timestamp_ms": 1729692005000,
-    "data_freshness_seconds": 5
+    "data_freshness_seconds": 0.45,
+    "is_stale": false,
+    "source": "service_b_ws"
   },
-  "index_version": 42
+  "news_as_of_ms": 1729692000000,
+  "news_freshness_seconds": 12.4,
+  "index_version": 5,
+  "telemetry": {
+    "latency_ms": 18.4,
+    "llm_inference_ms": 14.2,
+    "prompt_tokens": 182,
+    "eval_tokens": 46,
+    "stripped_hallucinated_citations": 0,
+    "engine": "ollama:llama3.2:1b"
+  }
 }
 ```
 
@@ -157,8 +179,24 @@ Service C exposes FastAPI REST endpoints on port `8080`:
 - **Upstream (Service B):** WebSocket connection to `ws://service-b:9999/md/<symbol>` (read-only consumer).
 - **Internal (RabbitMQ):** AMQP connection to `amqp://guest:guest@rabbitmq:5672/`.
 - **Internal (Ollama):** HTTP connection to `http://ollama:11434/api/chat`.
-- **Downstream (Frontend / User):** Serves the terminal Q&A interface inside the unified web frontend.
+- **Downstream (Frontend / Service A):** Serves the standalone chatbot terminal (`/`) and embeddable compact chat box (`/widget` and `/static/lame-chat-widget.js`) plus CORS-enabled JSON endpoints (`/api/chat`, `/api/news`). See [service_c_frontend_integration.md](service_c_frontend_integration.md) for Service A's integration guide.
 - **Monitoring (Prometheus):** Scraped via HTTP `GET /metrics` on port `8080`.
+
+### 4.3 Service A Frontend Integration Summary
+
+Service A (Pin-Yun) owns the main trading terminal shell and integrates Service C's **Small Chat Box** and **News Feed** via any of three supported patterns (full guide in [service_c_frontend_integration.md](service_c_frontend_integration.md)):
+
+1. **Drop-in JS Widget (`lame-chat-widget.js`):**
+   ```html
+   <div id="lame-ai-chatbox" data-api-url="http://localhost:8080" data-symbol="BTC-USDT"></div>
+   <script src="http://localhost:8080/static/lame-chat-widget.js"></script>
+   ```
+2. **Compact Iframe (`/widget`):**
+   ```html
+   <iframe src="http://localhost:8080/widget" width="340" height="420" style="border:none;border-radius:10px;"></iframe>
+   ```
+3. **Direct REST API Fetch (`POST /api/chat` & `GET /api/news`):**
+   CORS is enabled (`Access-Control-Allow-Origin: *`) on Service C port `8080`, allowing Service A's frontend or gateway to call `POST http://localhost:8080/api/chat` and `GET http://localhost:8080/api/news` directly.
 
 ---
 

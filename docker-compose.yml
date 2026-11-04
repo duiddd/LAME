@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  service-c:
+    build:
+      context: ./service_c
+      dockerfile: Dockerfile
+    container_name: lame-service-c
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVICE_C_HOST=0.0.0.0
+      - SERVICE_C_PORT=8080
+      - SERVICE_C_DB_PATH=/data/news_c.db
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - RABBITMQ_ENABLED=true
+      - SERVICE_B_WS_URL=ws://service-b:9999/md
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2:1b
+      - ALLOW_DETERMINISTIC_LLM_FALLBACK=true
+    volumes:
+      - service_c_data:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: lame-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: lame-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  service_c_data:
+  ollama_models:
