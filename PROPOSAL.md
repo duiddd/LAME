@@ -16,7 +16,7 @@ Four services, one owner each. Each service answers exactly one business questio
 
 | Service | Owner | The one question it answers | Key patterns |
 | --- | --- | --- | --- |
-| A. Trading & Accounts | \[Pin-Yun Kuo\] | Are balances and assets correct? | Trading API and gateway; idempotent order IDs; strongly consistent spot holds; order-fate resolution (never release a hold on a timeout); idempotent settlement with sequence-number deduplication and gap recovery; load shedding; user-private notifications |
+| A. Trading & Accounts | \[Pin-Yun Kuo\] | Are balances and assets correct? | Trading API and gateway; registration, login and simulated deposits; idempotent order IDs; strongly consistent spot holds; never release a hold on a timeout or an acknowledgement; idempotent settlement from D's notifications with sequence-number deduplication and gap recovery; load shedding; candles from trades; user-private notifications; trading page of the frontend |
 | B. Matching & Market Data | \[Bo Wu\] | Who trades with whom, at what price? | Deterministic price-time matching, one sequential matcher per symbol; durable log as source of truth, appended before publishing; crash recovery by replay; order lookup and cancel-by-ID; sequenced market data feed; trading bots and load tests |
 | C. News & AI Analyst | \[Rushabh Mutha\] | What is happening in the market, and why? | Scripted news replay; versioned searchable index; RAG answers with verified citations, freshness labels and explicit "insufficient evidence"; prompt-injection screening; dashboard with model latency, token use and refusal rate |
 | D. Risk Control | \[Zongyan Yang\] | Should this order be allowed? | Rule-based pre-trade gate that fails closed; two rules (self-trade prevention, wash trading); trader features built from the trade stream; rule-versioned decisions |
@@ -46,31 +46,32 @@ Four services, one owner each. Each service answers exactly one business questio
 
 **Owner:** \[Pin-Yun Kuo\] · **The one question it answers:** Are balances and assets correct?
 
-**Role.** The user-facing entry point of the exchange, and the single authority for account balances and order state. Its users are discretionary traders placing orders by hand. Bots only act as load sources; A provides no features specific to programmatic trading.
+**Role.** The user-facing entry point of the exchange, and the single authority for users, account balances and order state. Its users are discretionary traders placing orders by hand. Bots only act as load sources; A provides no features specific to programmatic trading.
 
 **Responsibilities**
 
-1. **Multi-user accounts.** Users are isolated from each other. Identity is lightweight (synthetic users, no real authentication). Each user has available balance, held balance and holdings, and every change leaves a ledger entry. Initial assets come from seed data, including some linked accounts that the wash-trading scenarios use; there are no deposits or withdrawals.
+1. **Users and accounts.** Users register and log in with a username and password; no email or other personal data is collected, and there is no identity verification. Users are isolated from each other. Each user has available balance, held balance and holdings, and every change leaves a ledger entry. New users start with zero balances and add funds by simulated deposits in the UI; there are no withdrawals. Seed data adds demo users, including some linked accounts that the wash-trading scenarios use.
 2. **Fund management.** Funds are held synchronously when an order is placed, and settled or released correctly on fill, cancel, modify or reject. Settlement is idempotent. This is spot trading only: there is no leverage or margin. A provides D with the linked-account data it needs. A remains the authority for balances.
-3. **Order functions.** Limit orders, market orders, cancel, and modify (modeled as cancel the old order and place a new one). A creates the order ID at the gateway, and it serves as the idempotency key, so retries never create duplicate orders.
-4. **Order state and order-fate resolution.** A is the only maintainer of order state. It updates orders and accounts from events emitted by the matching side, and lets users query open orders, order history and fills. When a call to D or B times out, the order becomes `UNKNOWN` and its hold is kept until A has resolved its fate with B (see the order lifecycle above).
-5. **Preliminary risk control.** Before handing an order to the risk service (D), A runs cheap checks that need only the single request and the user's own account: sufficient balance, per-order size limit, price protection and rate limiting. Orders that pass go to D, which either forwards them to B or rejects them back to A. On a rejection, A releases the hold and reports the reason to the user.
+3. **Order functions.** Limit orders, market orders, cancel, and modify (sent to D under the same order ID, with the new price or remaining quantity). A creates the order ID at the gateway, and it serves as the idempotency key, so retries never create duplicate orders.
+4. **Order state and order fate.** A is the only maintainer of order state. All commands go to D, and D's reply only acknowledges receipt (`SENT`). D then notifies A of every outcome: its risk decision, B's acceptance with B's order sequence number (`PROCESSING`), fills, cancels, rejections and expiry. A updates orders and accounts only from these notifications, never from a timeout or an acknowledgement. If D does not acknowledge, the order becomes `UNKNOWN`, its hold is kept, and A resends the same order ID and then cancels it. If an acknowledged order gets no notification, A queries D with backoff and keeps the hold until the outcome arrives. Users can query open orders, order history, fills and holdings.
+5. **Preliminary risk control.** Before handing an order to the risk service (D), A runs cheap checks that need only the single request and the user's own account: sufficient balance, per-order size limit, price protection and rate limiting. Orders that pass go to D. On a rejection, A releases the hold and reports the reason to the user.
 6. **Load shedding.** If D's recent p99 latency exceeds its share of the budget, A rejects new orders with a clear reason instead of weakening D's rules. The threshold is set from the Week 6 baseline.
-7. **Settlement consumer.** A settles from B's sequenced events. It deduplicates on the sequence number and recovers from gaps by asking B to replay from the missing number.
-8. **API gateway.** The entry point for all trading and account operations. It handles validation, rate limiting and idempotency, and pushes each user's own order and balance updates to the frontend. Market data does not pass through A; the frontend obtains it directly from B.
-9. **Frontend.** One frontend shared with C. A owns the overall application shell; C owns the news and Q&A parts.
+7. **Settlement from D's notifications.** D sends its notifications in order with a contiguous sequence number and resends each one until A confirms it. A deduplicates on that number and on B's `(day, seq)` for trades; when a notification arrives ahead of a gap, A tells D the number it expects and D resends from there.
+8. **API gateway.** The entry point for all trading and account operations. It handles authentication, validation, rate limiting and idempotency, and pushes each user's own order and balance updates to the frontend. Market data does not pass through A; the frontend obtains the order book directly from B.
+9. **Market views.** A computes candles (5 s, 15 s, 1 min and 5 min) from the trades it settles, and the change since the day's opening price for the market list.
+10. **Frontend.** One frontend shared with C. A owns the application shell and the trading page: order book, candlestick chart, order form, market list, and tabs for open orders, order history, trade history and holdings. The trading page reserves a slot for C's chat box and shows C's news for the selected pair; C owns the News & Analyst page.
 
-**Consistency.** Balances, holds and order acceptance are strongly consistent. Settlement and order-state updates are eventually consistent, with measurable lag. A failure of D must not take A down; waiting on D is always bounded. A bounded wait does not release funds: an order whose fate is unknown stays held until B confirms it.
+**Consistency.** Registration, deposits, balances, holds and order acceptance are strongly consistent. Settlement and order-state updates are eventually consistent, with measurable lag. A failure of D must not take A down; waiting on D is always bounded. While D is down, new orders and settlement both pause, and funds stay held until D's notifications arrive.
 
-**Out of scope.** Real authentication, deposits and withdrawals, leverage and margin, stop orders, programmatic-trading features, matching, and behavioral risk rules (D).
+**Out of scope.** Identity verification, password recovery, real personal data, withdrawals, leverage and margin, stop orders, programmatic-trading features, matching, and behavioral risk rules (D).
 
 **Acceptance criteria**
 
 1. After concurrent trading by many users, balances, holds and ledger entries are consistent.
-2. Duplicate requests or duplicate trade notifications never take effect twice.
-3. When D or B times out, or is killed, no hold is released until B has confirmed the order's fate, and no fill ever uses released funds. Each order ends as filled, cancelled or rejected.
-4. After a dropped event, A detects the gap from the sequence numbers and recovers.
-5. A user can complete the full flow in the UI: view the market, place, modify and cancel orders, and see the account change.
+2. Duplicate requests or duplicate notifications never take effect twice.
+3. When D or B times out, or is killed, no hold is released before D's notification gives the order's fate, and no fill ever uses released funds. Each order ends as filled, cancelled or rejected.
+4. When a notification arrives ahead of a gap, A detects it from the sequence numbers and recovers.
+5. A user can complete the full flow in the UI: register, log in, deposit, view the market, place, modify and cancel orders, and see the account change.
 
 ## Service B: Matching & Market Data
 
