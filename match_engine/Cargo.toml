@@ -1,0 +1,21 @@
+[package]
+name = "match_engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.104"
+axum = { version = "0.7", features = ["ws"] }
+futures-util = "0.3.34"
+ipnet = "2.12.2"
+prometheus = "0.14.0"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "net"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+tokio-tungstenite = "0.24"

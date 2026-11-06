@@ -43,7 +43,7 @@ Every output record carries `day`, `seq` (its own sequence number) and `prev_seq
 
 ### 2.2.1 Self-trade prevention (D24)
 
-As the atomic backstop for D's self-trade rule, the matcher never matches an incoming order against a resting order of the same `user_id`. It stops there and cancels the incoming order's remainder (`OrderEvent` `CANCELLED`, `reason = SELF_TRADE_PREVENTED`); the resting order is untouched. Fills against other users before that point stand. Linked accounts are D's concern (R2), not B's.
+As the atomic backstop for D's self-trade rule, an incoming order never trades with a resting order of the same `user_id`. Matching follows price-time priority; when the next order in line belongs to the same user, matching stops and the incoming order's remainder is rejected (`OrderEvent` `REJECTED`, `reason = SELF_TRADE_PREVENTED`, with the filled and remaining quantities). The resting order is untouched and the remainder never rests. Fills against other users before that point stand, so an aggressive order can be partially filled and then have its remainder rejected. Limit and market orders behave the same. A market order whose remainder is left only because liquidity ran out is `CANCELLED`, not rejected. Linked accounts are D's concern (R2), not B's.
 
 ### 2.3 Output: market data to clients
 
