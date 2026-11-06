@@ -224,6 +224,27 @@ pub fn expected_content(day: &str, symbol: &str, out: &Output) -> Value {
     content(&Outbound::new(day, 0, 0, symbol, out).to_json()).expect("just serialized")
 }
 
+/// The reply to an accepted `resume`, always the first message on the
+/// connection. `through_seq` is the `seq` of the last output stored when the
+/// handshake was served: once D holds every output up to it, the catch-up is
+/// over and everything after it is live.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ResumeOk {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub from_seq: Seq,
+    pub through_seq: Seq,
+}
+
+pub fn resume_ok_json(from_seq: Seq, through_seq: Seq) -> String {
+    serde_json::to_string(&ResumeOk {
+        kind: "resume_ok",
+        from_seq,
+        through_seq,
+    })
+    .expect("resume replies always serialize")
+}
+
 /// A message to D that is not a record: a refused handshake or a bad frame.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ErrorMsg<'a> {

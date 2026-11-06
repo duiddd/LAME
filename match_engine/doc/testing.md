@@ -23,7 +23,7 @@ cargo fmt --check
 | `tests/http.rs` | `/healthz`, nothing served while recovering, unhealthy once a stop begins, metrics, the allow-list, the `--healthcheck` logic, the outbound queue closing the connection when full |
 | `tests/end_of_day.rs` | The timer's delay, cancels in `seq` order at the close, rejection after the close, the new day opening at midnight, a command closing the day without the timer, one `DayClose` only, rollover to the next day's store, resume covering only the current day |
 | `tests/recovery.rs` | Restart restoring the book, numbering and market data; outputs a crash left unwritten; each kind of disagreement refusing to start; a second instance refused; start after the close; a day never closed; commands waiting for the next day keeping their order |
-| `tests/resend.rs` | A long resend (12 000 records through a queue of 8) with D not reading: the connection survives, everything arrives, new orders, trades and cancels are handled while the resend is in progress |
+| `tests/resend.rs` | A long resend (12 000 records through a queue of 8) with D not reading: the connection survives, everything arrives, new orders, trades and cancels are handled while the resend is in progress, and the `resume_ok` reply names where the catch-up ends |
 | `tests/process.rs` | The real binary: `SIGTERM`, `SIGKILL` then restart, `--healthcheck`, refusing to start twice or without a symbol list |
 | `tests/csv_protocol.rs` | The CSV request parser and output formatter used by the test adapter |
 | `tests/datasets.rs` | Dataset regression, see below |

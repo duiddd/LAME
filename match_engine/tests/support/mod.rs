@@ -66,6 +66,10 @@ pub async fn start(cfg: Config, clock: &TestClock) -> RunningService {
 pub struct Client {
     ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
     seen: std::collections::HashSet<(String, u64)>,
+    /// `through_seq` of the `resume_ok` that answered the handshake.
+    pub through_seq: Option<u64>,
+    /// A first reply that was not `resume_ok` (a refused handshake).
+    first: Option<Value>,
 }
 
 impl Client {
@@ -74,6 +78,13 @@ impl Client {
         let mut c = Self::connect_raw(addr).await;
         c.send(json!({"type": "resume", "from_seq": from_seq}))
             .await;
+        match c.recv().await {
+            Some(v) if v["type"] == "resume_ok" => {
+                assert_eq!(v["from_seq"], from_seq);
+                c.through_seq = v["through_seq"].as_u64();
+            }
+            other => c.first = other,
+        }
         c
     }
 
@@ -84,6 +95,8 @@ impl Client {
         Self {
             ws,
             seen: Default::default(),
+            through_seq: None,
+            first: None,
         }
     }
 
@@ -98,6 +111,9 @@ impl Client {
     /// The next record or error as JSON (skipping repeats of a `seq` already
     /// seen), or `None` once the connection is closed.
     pub async fn recv(&mut self) -> Option<Value> {
+        if let Some(v) = self.first.take() {
+            return Some(v);
+        }
         loop {
             match self.ws.next().await? {
                 Ok(Message::Text(t)) => {

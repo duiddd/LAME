@@ -151,18 +151,22 @@ impl EventStore {
 
     /// `seq` of the last output stored, 0 if there is none.
     pub fn last_output_seq(&self) -> Result<Seq> {
-        let v: i64 = self.conn.query_row(
-            "SELECT COALESCE(MAX(seq), 0) FROM events WHERE kind IN ('OrderEvent', 'Trade')",
-            [],
-            |r| r.get(0),
-        )?;
-        Ok(v as Seq)
+        last_output_seq(&self.conn)
     }
 
     /// Calls `f` for every record with `seq > after`, in `seq` order.
     pub fn scan(&self, after: Seq, f: impl FnMut(Record) -> Result<()>) -> Result<()> {
         scan(&self.conn, after, false, f)
     }
+}
+
+fn last_output_seq(conn: &Connection) -> Result<Seq> {
+    let v: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(seq), 0) FROM events WHERE kind IN ('OrderEvent', 'Trade')",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(v as Seq)
 }
 
 fn max_seq(conn: &Connection) -> Result<Seq> {
@@ -217,6 +221,11 @@ impl Reader {
 
     pub fn max_seq(&self) -> Result<Seq> {
         max_seq(&self.conn)
+    }
+
+    /// `seq` of the last output stored, 0 if there is none.
+    pub fn last_output_seq(&self) -> Result<Seq> {
+        last_output_seq(&self.conn)
     }
 
     /// Calls `f` for every output with `seq > after`, in `seq` order.
