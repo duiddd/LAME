@@ -10,15 +10,19 @@ from .auth.service import AuthService
 from .auth.tokens import Tokens
 from .config import Catalog, Settings, load_catalog
 from .market.cache import PriceCache
+from .market.service import MarketService
 from .metrics import Metrics
 from .orders.dclient.breaker import CircuitBreaker
 from .orders.dclient.http import HttpDClient
 from .orders.dclient.port import DClient
 from .orders.events.service import EventsService
+from .orders.reconcile.loop import Reconciler
 from .orders.service import OrdersService
 from .orders.views import OrderViews
 from .ports import Clock, IdGenerator, SystemClock, UlidGenerator
 from .push.hub import Hub
+from .shedding import Shedder
+from .supervisor import Supervisor
 
 
 @dataclass
@@ -40,6 +44,10 @@ class Container:
     views: OrderViews
     orders: OrdersService
     events: EventsService
+    market: MarketService
+    shedder: Shedder
+    reconciler: Reconciler
+    supervisor: Supervisor
 
 
 def build_container(settings: Settings, clock: Clock | None = None, ids: IdGenerator | None = None, d: DClient | None = None) -> Container:
@@ -54,13 +62,23 @@ def build_container(settings: Settings, clock: Clock | None = None, ids: IdGener
     accounts = AccountsService(engine, catalog, clock, hub)
     prices = PriceCache(clock, settings.md_stale_s)
     breaker = CircuitBreaker(settings.breaker_failures, settings.breaker_open_s, clock)
-    d = d or HttpDClient(settings.d_url, settings.d_connect_timeout_s, settings.d_total_timeout_s, breaker, metrics, clock)
+    shedder = Shedder(settings.shed_threshold_s, settings.shed_window_s, settings.shed_breaches, settings.shed_resume_ratio, clock, metrics)
+    if d is None:
+        http = HttpDClient(settings.d_url, settings.d_connect_timeout_s, settings.d_total_timeout_s, breaker, metrics, clock)
+        http.on_busy = shedder.busy
+        d = http
     views = OrderViews(catalog, accounts, hub)
     ids = ids or UlidGenerator()
     orders = OrdersService(engine, settings, catalog, clock, ids, accounts, views, hub, prices, d, breaker, metrics)
+    orders.shedding_active = lambda: shedder.active
+    orders.order_sent = shedder.started
     events = EventsService(engine, catalog, clock, accounts, views, hub, metrics)
+    events.outcome_seen = shedder.finished
+    reconciler = Reconciler(engine, settings, catalog, clock, orders, d, events, prices, breaker, metrics)
+    events.cancel_needed = reconciler.kick
+    market = MarketService(engine, catalog, clock)
     return Container(settings, catalog, engine, clock, ids, tokens, passwords, auth, accounts, metrics, hub, prices,
-                     breaker, d, views, orders, events)
+                     breaker, d, views, orders, events, market, shedder, reconciler, Supervisor(metrics))
 
 
 def get_container(request: Request) -> Container:

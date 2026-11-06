@@ -60,7 +60,7 @@ def migrated_once(migrated):
 
 
 def make_settings(**overrides) -> Settings:
-    defaults = dict(database_url=URL, jwt_secret="test-secret-test-secret-test-secret-0", seed_balances=False, _env_file=None)
+    defaults = dict(database_url=URL, jwt_secret="test-secret-test-secret-test-secret-0", seed_balances=False, background_tasks=False, _env_file=None)
     return Settings(**{**defaults, **overrides})
 
 

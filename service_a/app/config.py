@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     event_retention_s: int = 24 * 3600
     modify_mode: str = "d_modify"
     seed_balances: bool = True
+    background_tasks: bool = True
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
