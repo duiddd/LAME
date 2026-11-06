@@ -15,10 +15,11 @@ from sqlalchemy import text
 from app.config import Settings
 from app.container import build_container
 from app.main import create_app
+from tests.fakes import FakeD
 
 URL = os.getenv("TEST_DATABASE_URL", "postgresql+asyncpg://lame@127.0.0.1:55432/lame_test")
 ROOT = Path(__file__).resolve().parent.parent
-TABLES = ["user_events", "trades", "orders", "notify_cursor", "ledger_entries", "deposits", "accounts", "refresh_tokens", "users"]
+TABLES = ["user_events", "trades", "orders", "ledger_entries", "deposits", "accounts", "refresh_tokens", "users"]
 
 
 class FakeClock:
@@ -53,6 +54,11 @@ def migrated():
     command.upgrade(config, "head")
 
 
+@pytest.fixture(scope="session")
+def migrated_once(migrated):
+    """For hypothesis tests, whose function-scoped fixtures would not reset between examples."""
+
+
 def make_settings(**overrides) -> Settings:
     defaults = dict(database_url=URL, jwt_secret="test-secret-test-secret-test-secret-0", seed_balances=False, _env_file=None)
     return Settings(**{**defaults, **overrides})
@@ -64,12 +70,18 @@ async def clock():
 
 
 @pytest_asyncio.fixture
-async def container(migrated, clock):
-    c = build_container(make_settings(), clock=clock)
+async def fake_d():
+    return FakeD()
+
+
+@pytest_asyncio.fixture
+async def container(migrated, clock, fake_d):
+    c = build_container(make_settings(), clock=clock, d=fake_d)
     async with c.engine.begin() as conn:
         existing = (await conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))).scalars().all()
         present = [t for t in TABLES if t in existing]
         await conn.execute(text(f"TRUNCATE {', '.join(present)} RESTART IDENTITY CASCADE"))
+        await conn.execute(text("UPDATE notify_cursor SET last_notify_seq = 0"))
     yield c
     await c.engine.dispose()
 

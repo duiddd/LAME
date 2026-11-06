@@ -12,6 +12,7 @@ from .config import Settings
 from .container import Container, build_container
 from .errors import install_handlers
 from .market.router import router as market_router
+from .orders.events.router import router as events_router
 from .orders.router import router as orders_router
 from .push.router import router as push_router
 from .seed import seed
@@ -28,6 +29,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         await seed(c.engine, c.accounts, c.passwords, c.catalog, c.clock, c.settings.linked_accounts_file,
                    SEED_PASSWORD_ENV_DEFAULT, c.settings.seed_balances)
         yield
+        await c.d.close()
         await c.engine.dispose()
 
     app = FastAPI(title="LAME Service A (Trading & Accounts)", version="0.1.0", lifespan=lifespan)
@@ -55,7 +57,7 @@ def create_app(container: Container | None = None) -> FastAPI:
             return JSONResponse({"ready": False, "database": str(type(e).__name__)}, status_code=503)
         return {"ready": True}
 
-    for router in (auth_router, accounts_router, orders_router, market_router, push_router):
+    for router in (auth_router, accounts_router, orders_router, events_router, market_router, push_router):
         app.include_router(router)
     return app
 
