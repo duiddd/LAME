@@ -2,10 +2,14 @@
 
 Connects to `ws://service-b:9999/md/<symbol>` and consumes self-contained full snapshots
 of the top-3 bids/asks plus `last_price`.
-- Enforces Service B's D6 rule: discards snapshots with `timestamp_ms <= last_timestamp_ms`.
-- Tracks staleness (`> 3.0s` without heartbeat/update marks feed stale).
-- Provides realistic simulated snapshots when Service B is offline during local development,
-  so Service C and Service A's frontend integration can be tested standalone.
+- Supports Service B (`match_engine/src/md.rs`) and Service A (`mocks/state.ts`) wire format:
+  `{ "bids": [...], "asks": [...], "last_price": int, "volume": int, "last_ms": int }`.
+- Enforces Service B D6 & Service A D15 rule:
+  - Discards strictly older snapshots (`ts_ms < existing.timestamp_ms`).
+  - Treats equal `last_ms` (`ts_ms == existing.timestamp_ms`) as a valid 1s heartbeat,
+    updating receipt time (`_received_wall_ms`) so quiet markets are not marked stale.
+  - Normalizes integer-cent prices (`price_decimals=2`, e.g. `6425000` -> `64250`) when upstream
+    sends cent-scaled integers.
 """
 
 import asyncio
@@ -76,49 +80,100 @@ class MarketDataCache:
             self._snapshots[sym] = snap
             self._received_wall_ms[sym] = now_ms
 
+    @staticmethod
+    def _normalize_price(symbol: str, raw_price: Optional[int]) -> Optional[int]:
+        """Normalizes cent-scaled integer prices (price_decimals=2 from Service A/B) to whole USDT if needed."""
+        if raw_price is None:
+            return None
+        val = int(raw_price)
+        if symbol.startswith("BTC") and val >= 500_000:
+            return round(val / 100)
+        if symbol.startswith("ETH") and val >= 20_000:
+            return round(val / 100)
+        return val
+
     def update_snapshot(self, payload: dict, source: str = "service_b_ws") -> bool:
-        """Applies a new snapshot if and only if its timestamp_ms is strictly newer (Service B D6)."""
+        """Applies a new snapshot or refreshes heartbeat receipt time.
+
+        - Drops strictly older snapshots (`ts_ms < existing.timestamp_ms`).
+        - Accepts equal timestamps (`ts_ms == existing.timestamp_ms`) as a Service B heartbeat.
+        """
         symbol = str(payload.get("symbol", "")).strip().upper()
         if not symbol:
             return False
 
-        ts_ms = int(payload.get("timestamp_ms") or payload.get("ts") or int(time.time() * 1000))
+        raw_ts = (
+            payload.get("timestamp_ms")
+            if payload.get("timestamp_ms") is not None
+            else payload.get("last_ms")
+            if payload.get("last_ms") is not None
+            else payload.get("ts")
+        )
+        ts_ms = int(raw_ts) if raw_ts is not None else int(time.time() * 1000)
+        now_wall_ms = int(time.time() * 1000)
+
         with self._lock:
             existing = self._snapshots.get(symbol)
             if (
                 existing is not None
                 and existing.source == "service_b_ws"
                 and source == "service_b_ws"
-                and ts_ms <= existing.timestamp_ms
             ):
-                # Service B D6 consumer rule: discard snapshot with timestamp <= latest processed
-                return False
+                if ts_ms < existing.timestamp_ms:
+                    # Strictly older snapshot -> drop per D6
+                    return False
+                if ts_ms == existing.timestamp_ms and payload.get("heartbeat") is True:
+                    # Explicit heartbeat with identical last_ms -> refresh receipt timestamp
+                    self._received_wall_ms[symbol] = now_wall_ms
+                    return True
+                if (
+                    ts_ms == existing.timestamp_ms
+                    and payload.get("last_price") is not None
+                    and self._normalize_price(symbol, int(payload["last_price"])) == existing.last_price
+                ):
+                    # Repeated identical snapshot from Service B 1s heartbeat -> refresh receipt time
+                    self._received_wall_ms[symbol] = now_wall_ms
+                    return True
+                if ts_ms == existing.timestamp_ms:
+                    return False
 
             raw_bids = payload.get("bids", [])[:3]
             raw_asks = payload.get("asks", [])[:3]
             bids = [
-                OrderBookLevel(price=int(b[0]), qty=int(b[1]))
+                OrderBookLevel(
+                    price=self._normalize_price(symbol, int(b[0])) or 0,
+                    qty=int(b[1]),
+                )
                 if isinstance(b, (list, tuple))
-                else OrderBookLevel(price=int(b["price"]), qty=int(b["qty"]))
+                else OrderBookLevel(
+                    price=self._normalize_price(symbol, int(b["price"])) or 0,
+                    qty=int(b["qty"]),
+                )
                 for b in raw_bids
             ]
             asks = [
-                OrderBookLevel(price=int(a[0]), qty=int(a[1]))
+                OrderBookLevel(
+                    price=self._normalize_price(symbol, int(a[0])) or 0,
+                    qty=int(a[1]),
+                )
                 if isinstance(a, (list, tuple))
-                else OrderBookLevel(price=int(a["price"]), qty=int(a["qty"]))
+                else OrderBookLevel(
+                    price=self._normalize_price(symbol, int(a["price"])) or 0,
+                    qty=int(a["qty"]),
+                )
                 for a in raw_asks
             ]
-            last_price = payload.get("last_price")
+            last_price = self._normalize_price(symbol, payload.get("last_price"))
             snap = MarketSnapshot(
                 symbol=symbol,
                 timestamp_ms=ts_ms,
-                last_price=int(last_price) if last_price is not None else None,
+                last_price=last_price,
                 bids=bids,
                 asks=asks,
                 source="service_b_ws" if source == "service_b_ws" else "simulated_fallback",
             )
             self._snapshots[symbol] = snap
-            self._received_wall_ms[symbol] = int(time.time() * 1000)
+            self._received_wall_ms[symbol] = now_wall_ms
             return True
 
     def get_market_context(self, symbol: Optional[str] = None) -> MarketContextOut:
@@ -132,6 +187,7 @@ class MarketDataCache:
         now_ms = int(time.time() * 1000)
         with self._lock:
             snap = self._snapshots.get(target)
+            received_ms = self._received_wall_ms.get(target, now_ms)
             if snap is None:
                 snap = MarketSnapshot(
                     symbol=target,
@@ -141,15 +197,15 @@ class MarketDataCache:
                     asks=[],
                     source="simulated_fallback",
                 )
-            # If running in simulated_fallback mode and no live Service B WS is connected,
-            # keep simulated heartbeat fresh so standalone demos have realistic freshness
             if snap.source == "simulated_fallback" and not self._ws_connected.get(target, False):
-                freshness_sec = round((now_ms - snap.timestamp_ms) / 1000.0, 2)
+                freshness_sec = round((now_ms - received_ms) / 1000.0, 2)
                 if freshness_sec > 2.0:
+                    self._received_wall_ms[target] = now_ms - 450
                     snap.timestamp_ms = now_ms - 450
                     freshness_sec = 0.45
             else:
-                freshness_sec = round(max(0.0, (now_ms - snap.timestamp_ms) / 1000.0), 2)
+                # Measure freshness from receipt wall clock (Service A D15 rule for Service B heartbeats)
+                freshness_sec = round(max(0.0, (now_ms - received_ms) / 1000.0), 2)
 
             is_stale = freshness_sec > settings.market_stale_threshold_seconds
             best_bid = snap.bids[0].price if snap.bids else None

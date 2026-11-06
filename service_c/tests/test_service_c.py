@@ -5,7 +5,7 @@ Verifies all acceptance criteria from PROPOSAL.md and docs/service_c_architectur
 2. Verifiable citations (no fabricated sources; hallucinated IDs stripped).
 3. Explicit "insufficient evidence" refusal when no relevant news is retrieved.
 4. Prompt-injection resilience (both user query guardrails and news payload sanitization).
-5. Service B market data D6 monotonic timestamp rule and freshness labels.
+5. Service B market data D6 monotonic timestamp rule, repeated-last_ms heartbeat, and cent normalization.
 6. Prometheus observability metrics (model latency, token usage, refusal rate, DLQ count).
 7. Dedicated Chatbot HTML page (`/`) and Service A embeddable widget (`/widget`, `/static/lame-chat-widget.js`).
 """
@@ -135,30 +135,47 @@ def test_prompt_injection_and_investment_advice_guardrails(isolated_env):
         assert all(c["news_id"] != "news_999999" for c in san_data["citations"])
 
 
-def test_service_b_market_snapshot_monotonic_rule(isolated_env):
-    """Service C discards out-of-order Service B market snapshots (timestamp_ms <= latest)."""
+def test_service_b_market_snapshot_monotonic_rule_and_heartbeat(isolated_env):
+    """Service C discards older snapshots, accepts repeated-last_ms heartbeats, and normalizes cent prices."""
     with TestClient(app) as client:
+        # 1. Cent-scaled snapshot (6500000 cents = 65000 USDT) with `last_ms`
         r_new = client.post(
             "/api/market/snapshot",
             json={
                 "symbol": "BTC-USDT",
-                "timestamp_ms": 2000000000000,
-                "last_price": 65000,
-                "bids": [{"price": 64990, "qty": 10}],
-                "asks": [{"price": 65010, "qty": 10}],
+                "last_ms": 2000000000000,
+                "last_price": 6500000,
+                "bids": [{"price": 6499000, "qty": 10000}],
+                "asks": [{"price": 6501000, "qty": 10000}],
                 "source": "service_b_ws",
             },
         )
         assert r_new.json()["accepted"] is True
         assert r_new.json()["snapshot"]["last_price"] == 65000
+        assert r_new.json()["snapshot"]["best_bid"] == 64990
 
-        # Older timestamp_ms must be rejected per Service B Decision D6
+        # 2. Repeated identical `last_ms` and `last_price` (Service B 1s heartbeat) must be accepted
+        r_hb = client.post(
+            "/api/market/snapshot",
+            json={
+                "symbol": "BTC-USDT",
+                "last_ms": 2000000000000,
+                "last_price": 6500000,
+                "bids": [{"price": 6499000, "qty": 10000}],
+                "asks": [{"price": 6501000, "qty": 10000}],
+                "source": "service_b_ws",
+            },
+        )
+        assert r_hb.json()["accepted"] is True
+        assert r_hb.json()["snapshot"]["is_stale"] is False
+
+        # 3. Strictly older timestamp_ms must be rejected per Service B Decision D6
         r_old = client.post(
             "/api/market/snapshot",
             json={
                 "symbol": "BTC-USDT",
-                "timestamp_ms": 1999999999000,
-                "last_price": 61000,
+                "last_ms": 1999999999000,
+                "last_price": 6100000,
                 "bids": [],
                 "asks": [],
                 "source": "service_b_ws",
@@ -172,7 +189,7 @@ def test_metrics_and_web_ui_endpoints(isolated_env):
     """Prometheus /metrics and HTML endpoints (/, /widget, /static/lame-chat-widget.js) serve properly."""
     with TestClient(app) as client:
         assert client.get("/").status_code == 200
-        assert client.get("/widget").status_code == 200
+        assert client.get("/widget?symbol=ETH-USDT").status_code == 200
         assert client.get("/static/lame-chat-widget.js").status_code == 200
         assert client.get("/healthz").status_code == 200
 

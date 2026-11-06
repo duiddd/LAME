@@ -12,7 +12,7 @@ class Settings:
     """Environment-driven configuration aligned with service_c_architecture.md."""
 
     service_name: str = "service-c-news-ai-analyst"
-    host: str = os.getenv("SERVICE_C_HOST", "0.0.0.0")
+    host: str = os.getenv("SERVICE_C_HOST", "127.0.0.1")
     port: int = int(os.getenv("SERVICE_C_PORT", "8080"))
 
     # SQLite + FTS5 Knowledge Base
@@ -26,7 +26,7 @@ class Settings:
     )
 
     # RabbitMQ / AMQP settings (D2)
-    rabbitmq_url: str = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+    rabbitmq_url: str = os.getenv("RABBITMQ_URL", "amqp://guest:guest@127.0.0.1:5672/")
     rabbitmq_enabled: bool = os.getenv("RABBITMQ_ENABLED", "true").lower() in ("1", "true", "yes")
     news_exchange: str = "news.direct"
     news_queue: str = "news_tasks"
@@ -36,7 +36,7 @@ class Settings:
     dlq_routing_key: str = "news.dead"
 
     # Service B Market Data WebSocket settings (D8)
-    service_b_ws_base: str = os.getenv("SERVICE_B_WS_URL", "ws://localhost:9999/md")
+    service_b_ws_base: str = os.getenv("SERVICE_B_WS_URL", "ws://127.0.0.1:9999/md")
     supported_symbols: tuple[str, ...] = field(
         default_factory=lambda: tuple(
             s.strip()
@@ -49,9 +49,9 @@ class Settings:
     )
 
     # Ollama Local LLM Runtime settings (D4, D5)
-    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
-    ollama_timeout_seconds: float = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "15.0"))
+    ollama_timeout_seconds: float = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "3.0"))
     allow_deterministic_fallback: bool = os.getenv(
         "ALLOW_DETERMINISTIC_LLM_FALLBACK", "true"
     ).lower() in ("1", "true", "yes")

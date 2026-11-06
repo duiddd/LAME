@@ -35,8 +35,12 @@
       container.dataset.apiUrl ||
       DEFAULT_API_BASE
     ).replace(/\/+$/, "");
+    const urlSymbol =
+      global.location && global.location.search
+        ? new URLSearchParams(global.location.search).get("symbol")
+        : null;
     let currentSymbol =
-      options.symbol || container.dataset.symbol || "BTC-USDT";
+      options.symbol || urlSymbol || container.dataset.symbol || "BTC-USDT";
 
     container.innerHTML = `
       <div class="lame-c-widget-root">

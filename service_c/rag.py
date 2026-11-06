@@ -77,7 +77,7 @@ class RAGEngine:
         url = f"{settings.ollama_base_url.rstrip('/')}/api/tags"
         try:
             req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=1.2) as resp:
+            with urllib.request.urlopen(req, timeout=0.5) as resp:
                 self.ollama_reachable = resp.status == 200
                 return self.ollama_reachable
         except Exception:
@@ -272,6 +272,12 @@ class RAGEngine:
 
         # Step 5: Invoke Ollama (temperature=0.0) or deterministic fallback
         try:
+            if (
+                not self.ollama_reachable
+                and settings.allow_deterministic_fallback
+                and "_call_ollama_sync" not in self.__dict__
+            ):
+                raise ConnectionError("Ollama not reachable; using deterministic grounded synthesizer")
             raw_llm_out, llm_sec, prompt_tokens, eval_tokens, engine_used = self._call_ollama_sync(
                 user_prompt
             )
