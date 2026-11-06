@@ -265,7 +265,7 @@
 | react-router-dom | 路由 | MIT |
 | tailwindcss | 样式 | MIT |
 | openapi-typescript | 由 OpenAPI 生成类型(开发用) | MIT |
-| msw、vitest、@testing-library/react、@playwright/test | mock 与测试(开发用) | MIT / MIT / MIT / Apache 2.0 |
+| msw、vitest、@testing-library/react | mock 与测试(开发用) | MIT |
 
 均为活跃维护的主流库。熔断器自行实现(D12)。安装时再核对版本、授权(含 lightweight-charts 的署名要求)并运行漏洞检查。
 
@@ -385,8 +385,8 @@
 
 - **决策:**
   - 先定 API 契约:Pydantic schema 加回 `501` 的空路由,由 OpenAPI 生成 TypeScript 类型;SSE 事件类型手写。
-  - 按 M0–M6 推进(架构文档第 17 节):前端先用 mock 做出画面,再逐步接上真实后端。开发时用 MSW 模拟 A,用小脚本模拟 B 的行情,C 用真实服务。
-  - 测试分层:单元、真实 PostgreSQL 的集成、hypothesis 不变式、fake D 的故障、前端逻辑、一两条端到端。
+  - 按 M0–M6 推进(架构文档第 17 节):前端先用 mock 做出画面,再逐步接上真实后端。开发时在页面内模拟 A 的 API 与 B 的行情(不使用 Service Worker,因此不增加部署文件),C 用真实服务。
+  - 测试分层:单元、真实 PostgreSQL 的集成、hypothesis 不变式、fake D 的故障、前端逻辑,以及 `tools/integration_check.py`(真实的 A 与 D,加 D 自带的 fake B)和一次浏览器检查。
 - **理由:** 两端都由同一人开发,一份契约可以避免不一致。fake D 使 A 不必等 D 完成。A 的正确性依赖 `FOR UPDATE`、`CHECK` 与条件更新,SQLite 无法重现。
 - **备选:** 手写 TypeScript 类型;自写 mock server;Testcontainers;SQLite。
 - **后果:** fake D 依 `feature/risk_control` 的代码行为编写。D 与 B 尚未联调,也都还没有加入根目录的 compose,M6 依赖这些。B 只在都柏林时间 09:30–16:00 接单,联调要安排在这个时段。系统负载测试与故障注入脚本按提案属于 B 与 D,A 不重复。

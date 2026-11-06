@@ -20,6 +20,7 @@ All amounts on the API are decimal strings; inside A they are integers (D8). Log
 | `/api/auth/register` | `POST` | `username`, `password`. No email or other personal data |
 | `/api/auth/login` | `POST` | `username`, `password` → sets the access and refresh cookies |
 | `/api/auth/refresh` | `POST` | Rotates the refresh token and issues a new access token; reuse of a spent refresh token revokes its whole family |
+| `/api/auth/me` | `GET` | The signed-in user |
 | `/api/auth/logout` | `POST` | Revokes the refresh token family and clears both cookies; an access token already copied elsewhere stays valid until it expires (at most 15 minutes) |
 | `/api/accounts/me` | `GET` | Available, held and total balance per asset (also the "holdings" tab) |
 | `/api/accounts/deposits` | `POST` | Simulated deposit: `asset`, `amount`, `Idempotency-Key` header. Credited at once (D26) |
@@ -35,7 +36,7 @@ All amounts on the API are decimal strings; inside A they are integers (D8). Log
 | `/healthz` | `GET` | Ready once the database is reachable and migrations have run; also reports each background task's state |
 | `/metrics` | `GET` | Prometheus metrics (section 12) |
 
-Rejections carry a machine-readable `reason`: `RATE_LIMITED` (429), `INVALID_TICK`, `INVALID_LOT`, `QTY_TOO_SMALL`, `QTY_TOO_LARGE`, `NOTIONAL_TOO_LARGE`, `PRICE_OUT_OF_BAND`, `NO_FRESH_PRICE`, `NO_LIQUIDITY`, `INSUFFICIENT_BALANCE`, `MODIFY_UNAVAILABLE`, `SYSTEM_BUSY` (503), `UNAUTHORIZED` (401), `USERNAME_TAKEN` (409).
+Rejections carry a machine-readable `reason`: `RATE_LIMITED` (429), `INVALID_TICK`, `INVALID_LOT`, `QTY_TOO_SMALL`, `QTY_TOO_LARGE`, `NOTIONAL_TOO_LARGE`, `PRICE_OUT_OF_BAND`, `NO_FRESH_PRICE`, `NO_LIQUIDITY`, `INSUFFICIENT_BALANCE`, `MODIFY_UNAVAILABLE`, `SYSTEM_BUSY` (503), `UNAUTHORIZED` (401), `USERNAME_TAKEN` (409), `INVALID_SYMBOL`, `ORDER_NOT_FOUND` (404), `ORDER_ALREADY_FINAL` (409), `ORDER_NOT_MODIFIABLE` (409), `INVALID_ASSET`, `INVALID_AMOUNT`, `DEPOSIT_TOO_LARGE`, `FORBIDDEN_ORIGIN` (403).
 
 After a `503`, the frontend starts a new attempt with a new `Idempotency-Key`, because the earlier attempt is finished. A retry of an order still being confirmed reuses the same key and returns the existing order.
 
@@ -497,6 +498,8 @@ During M1, MSW mocks A's REST and SSE, a small script stands in for B's market d
 | Invariant | hypothesis | Random notification sequences keep balances ≥ 0 and ledger sums equal to accounts; held is 0 at close | PostgreSQL |
 | Failure | pytest with fake D | Acknowledgement timeout, connection failure, slowness, crash after commit | PostgreSQL |
 | Frontend logic | Vitest, Testing Library | Status labels, MA, order book throttling, SSE merging, shared refresh | None |
-| End to end | Playwright, one or two paths | Register to fill; trading while C is offline | Full stack |
+| End to end | `tools/integration_check.py`, and a browser pass | Real A against real D, with D's fake of B: placing, matching, settling, a rejection, a cancel, a market buy, D going down | PostgreSQL |
 
 Integration tests use a real PostgreSQL from compose, because correctness rests on `FOR UPDATE`, `CHECK` and conditional updates, whose behaviour SQLite would not reproduce. Load tests and failure-injection scripts for the whole system belong to B and D, as the proposal assigns.
+
+A's and the frontend's compose files are in `service_a/` and `frontend/` for now, on a shared `lame` network; their services move into the root compose file at the final merge, so that these branches do not conflict with it.
