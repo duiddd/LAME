@@ -1,0 +1,490 @@
+/* Binance Pro + Dribbble Dark Terminal Theme for LAME Service C */
+:root {
+  --bg-canvas: #0B0E11;
+  --bg-panel: #181A20;
+  --bg-elevated: #1E2329;
+  --bg-hover: #2B3139;
+  --border: #2B3139;
+  --text-primary: #EAECEF;
+  --text-secondary: #848E9C;
+  --text-muted: #5E6673;
+  --binance-gold: #F0B90B;
+  --binance-gold-hover: #FCD535;
+  --up-green: #0ECB81;
+  --down-red: #F6465D;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 1. Top Exchange Header Bar (#181A20) */
+.b-navbar {
+  height: 46px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.b-logo-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.b-logo-diamond {
+  width: 24px;
+  height: 24px;
+  background: var(--binance-gold);
+  color: #0B0E11;
+  font-weight: 900;
+  font-size: 11px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: -0.5px;
+}
+
+.b-brand-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--binance-gold);
+  letter-spacing: 0.4px;
+}
+
+.b-nav-tag {
+  font-size: 10.5px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.b-telemetry-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.b-stat-chip {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 9px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.b-stat-chip .k {
+  color: var(--text-secondary);
+  font-size: 10.5px;
+}
+
+.b-stat-chip .v {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.b-stat-chip .v.gold { color: var(--binance-gold); }
+.b-stat-chip .v.green { color: var(--up-green); }
+.b-stat-chip .v.red { color: var(--down-red); }
+
+/* 2. Sub-Header 24h Ticker Strip (#181A20) */
+.b-ticker-strip {
+  height: 52px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.b-pair-cluster {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.b-pair-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 18px;
+  border-right: 1px solid var(--border);
+}
+
+.b-pair-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.b-pair-sub {
+  font-size: 10px;
+  color: var(--binance-gold);
+  background: rgba(240, 185, 11, 0.12);
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.b-pair-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--up-green);
+}
+
+.b-pair-meta {
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* 3. Modular 1px Hairline Trading Terminal Grid (#0B0E11 gap) */
+.b-terminal-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 350px 1fr 370px;
+  gap: 4px;
+  background: var(--bg-canvas);
+  padding: 4px;
+  overflow: hidden;
+}
+
+@media (max-width: 1180px) {
+  body { height: auto; overflow: auto; }
+  .b-terminal-grid { grid-template-columns: 1fr; }
+}
+
+.b-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.b-panel-header {
+  height: 38px;
+  padding: 0 12px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.b-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.b-panel-title::before {
+  content: "";
+  width: 3px;
+  height: 12px;
+  background: var(--binance-gold);
+  border-radius: 1px;
+}
+
+.b-btn {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid #38404B;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.b-btn:hover {
+  border-color: var(--binance-gold);
+  color: var(--binance-gold);
+}
+
+/* Order Book Top-3 Depth Visualizer */
+.b-orderbook-wrap {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: #14161B;
+}
+
+.b-ob-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.b-ob-row {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 2px 4px;
+  margin: 1px 0;
+}
+
+.b-ob-bar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.b-ob-row.ask .price { color: var(--down-red); }
+.b-ob-row.ask .b-ob-bar { background: rgba(246, 70, 93, 0.14); }
+.b-ob-row.bid .price { color: var(--up-green); }
+.b-ob-row.bid .b-ob-bar { background: rgba(14, 203, 129, 0.14); }
+.b-ob-mid {
+  text-align: center;
+  padding: 4px 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--binance-gold);
+  border-top: 1px solid #22262F;
+  border-bottom: 1px solid #22262F;
+  margin: 3px 0;
+}
+
+/* News Feed Wire */
+.b-news-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.b-news-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 9px 11px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.b-news-card.highlight {
+  border-color: var(--binance-gold);
+  background: rgba(240, 185, 11, 0.06);
+}
+
+.b-news-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.b-tag-id {
+  color: var(--binance-gold);
+  background: rgba(240, 185, 11, 0.12);
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.b-tag-sym {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+.b-tag-san {
+  color: var(--down-red);
+  background: rgba(246, 70, 93, 0.14);
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 700;
+}
+
+/* Center Panel: AI Analyst Chat */
+.b-scenario-strip {
+  padding: 7px 12px;
+  background: #14161B;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.b-chip {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.b-chip:hover {
+  border-color: var(--binance-gold);
+  color: var(--binance-gold);
+}
+
+.b-chat-stream {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.b-msg {
+  padding: 11px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 90%;
+}
+
+.b-msg.user {
+  align-self: flex-end;
+  background: var(--binance-gold);
+  color: #0B0E11;
+  font-weight: 600;
+  border-bottom-right-radius: 1px;
+}
+
+.b-msg.bot {
+  align-self: flex-start;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-bottom-left-radius: 1px;
+}
+
+.b-status {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 2px;
+  margin-bottom: 6px;
+}
+
+.b-status.ANSWERED { background: rgba(14, 203, 129, 0.15); color: var(--up-green); border: 1px solid rgba(14, 203, 129, 0.35); }
+.b-status.INSUFFICIENT_EVIDENCE { background: rgba(240, 185, 11, 0.15); color: var(--binance-gold); border: 1px solid rgba(240, 185, 11, 0.35); }
+.b-status.REJECTED_UNSAFE { background: rgba(246, 70, 93, 0.15); color: var(--down-red); border: 1px solid rgba(246, 70, 93, 0.35); }
+
+.b-cites-box {
+  margin-top: 8px;
+  padding: 7px 10px;
+  background: #0B0E11;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.b-cite-pill {
+  display: inline-block;
+  background: rgba(240, 185, 11, 0.12);
+  color: var(--binance-gold);
+  border: 1px solid rgba(240, 185, 11, 0.3);
+  border-radius: 2px;
+  padding: 2px 6px;
+  margin: 2px 4px 2px 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.b-msg-footer {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.b-input-bar {
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+}
+
+.b-input-bar select, .b-input-bar input {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.b-input-bar select:focus, .b-input-bar input:focus {
+  border-color: var(--binance-gold);
+}
+
+.b-input-bar input { flex: 1; }
+
+.b-btn-gold {
+  background: var(--binance-gold);
+  color: #0B0E11;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.b-btn-gold:hover { background: var(--binance-gold-hover); }
