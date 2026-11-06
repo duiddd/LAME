@@ -43,9 +43,12 @@ async def test_events_are_written_with_their_change(client, container):
     assert (await place(client)).status_code == 400
     async with container.engine.connect() as conn:
         assert (await conn.execute(text("SELECT count(*) FROM user_events"))).scalar() == before
-    assert (await place(client, key="k2", qty="0.001", price="50000.00")).status_code == 400
-    assert (await place(client, key="k3", qty="0.001", price="1000.00", )).status_code == 400
-    assert user["user_id"] > 0
+    async with container.engine.begin() as conn:
+        await conn.execute(text("UPDATE accounts SET available = 100000000000000 WHERE asset = 'USDT'"))
+    assert (await place(client, key="k2")).status_code == 202
+    async with container.engine.connect() as conn:
+        types = (await conn.execute(text("SELECT type FROM user_events WHERE user_id = :u AND event_id > :b"), {"u": user["user_id"], "b": before})).scalars().all()
+    assert "order_update" in types and "balance_update" in types
 
 
 async def test_replay_after_last_id(client, container, clock):

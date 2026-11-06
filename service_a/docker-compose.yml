@@ -1,0 +1,42 @@
+# Service A and its database. These two services move into the root compose file at the final merge.
+# /internal/order-events must stay inside this network, so port 8000 is not published to the host.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lame
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lame}
+      POSTGRES_DB: lame
+    volumes:
+      - service_a_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lame"]
+      interval: 3s
+      retries: 20
+    networks: [lame]
+
+  service-a:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lame:${POSTGRES_PASSWORD:-lame}@postgres:5432/lame
+      D_URL: http://service-d:8400
+      B_MD_URL: ws://service-b:9999
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to a long random value}
+      ALLOWED_ORIGINS: http://localhost:3000
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 5s
+      retries: 20
+    networks: [lame]
+
+volumes:
+  service_a_data:
+
+networks:
+  lame:
+    name: lame
