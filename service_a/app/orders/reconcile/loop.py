@@ -76,7 +76,8 @@ class Reconciler:
             await self._orders.mark_unknown(row.order_id)
 
     async def _unknown(self, row, now: int) -> None:
-        if row.next_attempt_at > now:
+        # Once a cancel is wanted, placing the order again would only fight it.
+        if row.cancel_wanted or row.next_attempt_at > now:
             return
         if now - row.created_at > self._settings.resend_window_s * 1000:
             # Too late to place it: an order must not take effect long after the user asked.
@@ -107,7 +108,8 @@ class Reconciler:
         if reply is None:
             return
         if not reply.found:
-            await self._want_cancel(row, now)
+            if not row.cancel_wanted:
+                await self._want_cancel(row, now)
         elif reply.last_notify_seq is not None and reply.last_notify_seq > cursor:
             log.warning("order %s: D has notifications up to %s, A has %s; asking D to resend", row.order_id, reply.last_notify_seq, cursor)
             await self._d.rewind(cursor + 1)

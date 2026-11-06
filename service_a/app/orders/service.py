@@ -4,7 +4,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ..accounts.service import AccountsService, Ref
-from ..config import Catalog, Settings, Symbol
+from ..config import Catalog, Settings, Symbol, from_units
 from ..errors import AppError
 from ..market.cache import PriceCache
 from ..metrics import Metrics
@@ -245,7 +245,7 @@ class OrdersService:
     async def _cancel_replace(self, user_id: int, row, sym: Symbol, price: int, qty: int):
         """The alternative that needs no modify from D: the replacement is a new order (D24)."""
         await self.cancel(user_id, row.order_id)
-        body = OrderIn(symbol=sym.symbol, side=row.side, type="LIMIT", price=_text(price, sym.price_decimals), qty=_text(qty, sym.qty_decimals))
+        body = OrderIn(symbol=sym.symbol, side=row.side, type="LIMIT", price=from_units(price, sym.price_decimals), qty=from_units(qty, sym.qty_decimals))
         return await self.place(user_id, body, f"{row.client_order_id}:r{self._ids.order_id()}")
 
     async def _modify_at_d(self, row, sym: Symbol, price: int, qty: int):
@@ -297,8 +297,3 @@ class OrdersService:
         async with self._engine.connect() as conn:
             return await repo.fills_for_user(conn, user_id, limit)
 
-
-def _text(units: int, decimals: int) -> str:
-    from ..config import from_units
-
-    return from_units(units, decimals)

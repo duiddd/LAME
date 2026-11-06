@@ -7,6 +7,8 @@
 | test_unknown_is_resent_then_acknowledged | A lost reply heals itself | UNKNOWN, resend identical content, ACK -> SENT |
 | test_resend_503_stays_unknown | A resend's refusal proves nothing | 503 on resend -> UNKNOWN, hold kept |
 | test_unknown_past_window_is_cancelled | No order long after the user asked | Past RESEND_WINDOW -> cancel at D; TOMBSTONED releases |
+| test_cancel_past_window_is_not_repeated | Once acknowledged, the cancel waits for its result | More ticks -> no more cancels and no more resends |
+| test_breaker_closes_on_any_answer | A half-open breaker cannot stick | Trial answered 400, 409, 501 or RISK_BUSY -> closed |
 | test_pending_after_a_crash_becomes_unknown | A crash between hold and send | Old PENDING -> UNKNOWN |
 | test_failed_cancel_is_retried | Withdrawing is always retried | Cancel fails -> resent until acknowledged |
 | test_market_remainder_cancel_survives_a_crash | Section 7.3 after a crash | cancel_wanted and unsent -> reconcile sends it |
@@ -134,6 +136,30 @@ async def test_unknown_past_window_is_cancelled(client, container, fake_d, clock
     await Notifier(client).cancel_result(order_id, "TOMBSTONED")
     assert (await balance(client, "USDT"))["held"] == "0.00000"
     assert (await order_row(container, order_id)).status == "CANCELLED"
+
+
+async def test_cancel_past_window_is_not_repeated(client, container, fake_d, clock, market):
+    # Purpose: without this, every tick would send the cancel again, forever.
+    order_id = await unknown_order(client, fake_d)
+    clock.advance(int(container.settings.resend_window_s * 1000) + 1)
+    for _ in range(5):
+        await container.reconciler.tick()
+        clock.advance(10000)
+    assert fake_d.cancels == [order_id] and len(fake_d.placed) == 1
+
+
+@pytest.mark.parametrize("status,body", [(400, {}), (409, {}), (501, {}), (503, {"error": "RISK_BUSY"})])
+async def test_breaker_closes_on_any_answer(status, body):
+    # Purpose: the trial request must end the half-open state, whatever D says about the order.
+    clock = FakeClock()
+    breaker = CircuitBreaker(1, 10, clock)
+    breaker.failure()
+    clock.advance(10000)
+    assert breaker.allow() and breaker.state == HALF_OPEN
+    client = HttpDClient("http://d", 0.1, 0.1, breaker, Metrics(), clock, transport=httpx.MockTransport(lambda r: httpx.Response(status, json=body)))
+    await client.place({"order_id": "x"})
+    assert breaker.state == CLOSED
+    await client.close()
 
 
 async def test_pending_after_a_crash_becomes_unknown(client, container, clock, market):

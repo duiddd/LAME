@@ -201,7 +201,7 @@ class EventsService:
         unsettled = row.filled_qty - row.settled_qty
         terminal = row.status in TERMINAL
         if n.get("result") == "APPLIED" and not terminal:
-            price = n.get("price", row.price)
+            price = n.get("price") or row.price
             remaining = n["qty"]
             target = hold_amount(row.side, price, remaining) + hold_amount(row.side, row.hold_price, unsettled)
             held, asset = await self._release_to(conn, row, target, str(n["notify_seq"]))

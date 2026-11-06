@@ -46,10 +46,15 @@ class HttpDClient:
             return Reply(Delivery.ACK)
         if r.status_code == 503 and error in ("RISK_UNAVAILABLE", "RISK_BUSY"):
             if error == "RISK_BUSY":
+                # D answered, so the link works: overload is load shedding's concern.
+                self._breaker.success()
                 self.on_busy()
             else:
                 self._breaker.failure()
             return Reply(Delivery.NOT_TAKEN, error)
+        if r.status_code in (400, 409, 501):
+            # An answer about this request says the link works, or a half-open breaker would stick.
+            self._breaker.success()
         if r.status_code == 400:
             log.error("%s for %s: D refused it as invalid: %s", operation, order_id, r.text)
             return Reply(Delivery.INVALID, r.text)
