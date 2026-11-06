@@ -70,7 +70,7 @@ If Service A uses React/Vue/Svelte and prefers complete CSS/DOM isolation, embed
 <iframe
   src="http://localhost:8080/widget"
   title="LAME AI Market Analyst (Service C)"
-  style="width: 350px; height: 420px; border: 1px solid #1e293b; border-radius: 10px; background: #0d131f;"
+  style="width: 350px; height: 420px; border: 1px solid #2B3139; border-radius: 6px; background: #181A20;"
   loading="lazy">
 </iframe>
 ```
@@ -146,13 +146,13 @@ async function askMarketAnalyst(queryText, symbol = "BTC-USDT") {
 }
 ```
 
-####Handling `status` Values in Service A's UI:
+#### Handling `status` Values in Service A's UI:
 | `status` | Meaning | Recommended UI Badge |
 |---|---|---|
-| `ANSWERED` | Grounded explanation with verified FTS5 citations (`citations` array). | Green badge + clickable `[news_id]` pills + freshness timestamp |
-| `INSUFFICIENT_EVIDENCE` | No relevant news found in SQLite FTS5 (`refusal_reason: "insufficient_evidence"`). | Amber badge ("Insufficient Evidence — Refused to Guess") |
-| `REJECTED_UNSAFE` | Blocked by Prompt-Injection or No-Investment-Advice guardrail (`refusal_reason: "unsafe_injection"` or `"investment_advice"`). | Red badge ("Blocked by Safety Guardrail") |
-| `SERVICE_UNAVAILABLE` | Ollama or Service C is unreachable (`HTTP 503` or network error). | Grey/Amber banner ("AI Analyst Offline — Trading Unaffected") |
+| `ANSWERED` | Grounded explanation with verified FTS5 citations (`citations` array). | Green badge (`#0ECB81`) + clickable `[news_id]` pills + freshness timestamp |
+| `INSUFFICIENT_EVIDENCE` | No relevant news found in SQLite FTS5 (`refusal_reason: "insufficient_evidence"`). | Gold badge (`#F0B90B` — "Insufficient Evidence — Refused to Guess") |
+| `REJECTED_UNSAFE` | Blocked by Prompt-Injection or No-Investment-Advice guardrail (`refusal_reason: "unsafe_injection"` or `"investment_advice"`). | Red badge (`#F6465D` — "Blocked by Safety Guardrail") |
+| `SERVICE_UNAVAILABLE` | Ollama or Service C is unreachable (`HTTP 503` or network error). | Red/Amber banner ("AI Analyst Offline — Trading Unaffected") |
 
 ---
 
@@ -183,7 +183,24 @@ const newsItems = await res.json();
 
 ---
 
-## 3. Acceptance Demo Checklist (Service A + Service C)
+## 3. Shared Binance Pro Dark Theme Tokens (For Visual Consistency with Service A)
+
+Both `chatbot.html` and `lame-chat-widget.js` use the **Binance Spot Pro** dark color system so Service C's widget blends seamlessly into Service A's trading terminal:
+
+| Token Role | Hex Code | Usage |
+|---|---|---|
+| **Canvas Background** | `#0B0E11` | Outer grid background / input field fill |
+| **Primary Panel Surface** | `#181A20` | Main modular panel containers (Order Book, Chart, Chat Box) |
+| **Elevated Header / Card** | `#1E2329` | Panel headers, bot message cards, ticker bar |
+| **Grid Border / Divider** | `#2B3139` | `1px solid` hairline borders between panels |
+| **Primary Accent (Binance Gold)** | `#F0B90B` (`#FCD535` hover) | Primary CTA buttons, `[news_id]` citation badges, active tabs |
+| **Bullish / Bid Green** | `#0ECB81` | Buy buttons, bid depth bars, `ANSWERED` status badge |
+| **Bearish / Ask Red** | `#F6465D` | Sell buttons, ask depth bars, `REJECTED_UNSAFE` & DLQ alerts |
+| **Primary / Secondary Text** | `#EAECEF` / `#848E9C` | Primary values (`Inter` + `JetBrains Mono`) and muted labels |
+
+---
+
+## 4. Acceptance Demo Checklist (Service A + Service C)
 
 1. **Normal Grounded Q&A:** Ask *"Why did BTC-USDT drop over the last 15 minutes?"* inside Service A's embedded chat box -> Verify `[news_20261023_001]` is cited and `data_freshness_seconds` is displayed.
 2. **Insufficient Evidence Refusal:** Ask *"Why did SOL-USDT crash after the eclipse?"* -> Verify `INSUFFICIENT_EVIDENCE` badge appears with zero fabricated citations.
