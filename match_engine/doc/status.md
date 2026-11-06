@@ -16,7 +16,7 @@
 - Tick/lot grid validation (D5) with `InvalidPrice` / `InvalidQty`.
 - Expiry of stale `New` commands (D15): a pure timestamp comparison against a
   build-time `MAX_COMMAND_AGE` (default 1000 ms).
-- Session check: new orders outside 09:30 to 16:00 Dublin time are rejected as
+- Session check: new orders outside 00:00 to 23:00 Dublin time are rejected as
   `EndOfDay` (D22).
 - End-of-day `DayClose`: cancels all resting orders in `seq` order, then fully
   resets the book.
@@ -37,7 +37,7 @@
   skip unchanged, heartbeat.
 - Control port with `/healthz`, `/metrics` and an IP allow-list;
   `--healthcheck` subcommand.
-- End-of-day timer at 16:00 Dublin time.
+- End-of-day timer at 23:00 Dublin time.
 - Start-up recovery: replay, per-pair comparison with stored outputs, writing
   outputs a crash left unwritten, refusing to start on any disagreement. Nothing
   is served until it finishes.

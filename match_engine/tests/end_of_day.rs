@@ -10,8 +10,8 @@ use match_engine::store::{EventStore, Kind};
 use serde_json::json;
 use support::*;
 
-/// 15:59 on the day, one minute before the close.
-const JUST_BEFORE_CLOSE: i64 = IN_SESSION + 5 * 3_600_000 + 59 * 60_000;
+/// 22:59 on the day, one minute before the close.
+const JUST_BEFORE_CLOSE: i64 = IN_SESSION + 12 * 3_600_000 + 59 * 60_000;
 /// 10:00 the next day.
 const NEXT_DAY: i64 = IN_SESSION + 24 * 3_600_000;
 
@@ -28,12 +28,12 @@ fn kinds_in(dir: &std::path::Path, day: &str) -> Vec<Kind> {
 }
 
 #[test]
-fn the_timer_waits_until_the_next_sixteen_hundred() {
-    // 10:00 UTC in winter is 10:00 Dublin: six hours to go.
-    assert_eq!(delay_until_close(IN_SESSION).as_millis(), 6 * 3_600_000);
+fn the_timer_waits_until_the_next_twenty_three_hundred() {
+    // 10:00 UTC in winter is 10:00 Dublin: thirteen hours to go.
+    assert_eq!(delay_until_close(IN_SESSION).as_millis(), 13 * 3_600_000);
     // A hair before: a millisecond.
     assert_eq!(
-        delay_until_close(IN_SESSION + 6 * 3_600_000 - 1).as_millis(),
+        delay_until_close(IN_SESSION + 13 * 3_600_000 - 1).as_millis(),
         1
     );
     // At the close itself: tomorrow's.
@@ -110,19 +110,25 @@ async fn new_orders_after_the_close_are_rejected_as_end_of_day() {
 }
 
 #[tokio::test]
-async fn orders_before_the_open_are_rejected_too() {
+async fn the_session_closes_at_23_00_and_the_new_day_opens_at_midnight() {
     let dir = tempfile::tempdir().unwrap();
-    let before_open = IN_SESSION - 30 * 60_000 - 1; // 09:29:59.999
-    let clock = TestClock::at(before_open);
+    // 23:59:59.999 on the day: closed. 00:00:00.000 the next day: open again.
+    let last_ms_of_day = IN_SESSION + 14 * 3_600_000 - 1;
+    let midnight = IN_SESSION + 14 * 3_600_000;
+    let clock = TestClock::at(last_ms_of_day);
     let svc = start(config(dir.path()), &clock).await;
     let mut d = Client::connect(svc.ctrl_addr, 0).await;
-    d.send(limit("AAA", 1, 100, "BUY", 50, 5, before_open))
+    d.send(limit("AAA", 1, 100, "BUY", 50, 5, last_ms_of_day))
         .await;
-    assert_eq!(d.recv().await.unwrap()["reason"], "END_OF_DAY");
-    clock.set(IN_SESSION - 30 * 60_000); // 09:30:00.000
-    d.send(limit("AAA", 2, 100, "BUY", 50, 5, IN_SESSION - 30 * 60_000))
-        .await;
-    assert_eq!(d.recv().await.unwrap()["status"], "ACCEPTED");
+    let rejected = d.recv().await.unwrap();
+    assert_eq!(rejected["reason"], "END_OF_DAY");
+    assert_eq!(rejected["day"], DAY);
+
+    clock.set(midnight);
+    d.send(limit("AAA", 2, 100, "BUY", 50, 5, midnight)).await;
+    let accepted = d.recv().await.unwrap();
+    assert_eq!(accepted["status"], "ACCEPTED");
+    assert_eq!(accepted["day"], "2026-11-05");
     svc.shutdown().await.unwrap();
 }
 

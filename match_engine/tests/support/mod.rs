@@ -17,10 +17,10 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 /// 2026-11-04 10:00:00 UTC. Dublin is on winter time, so this is inside the
-/// 09:30 to 16:00 session.
+/// 00:00 to 23:00 session.
 pub const IN_SESSION: i64 = 1_793_786_400_000;
-/// 16:30 the same day: after the close.
-pub const AFTER_CLOSE: i64 = IN_SESSION + 6 * 3_600_000 + 30 * 60_000;
+/// 23:30 the same day: after the close.
+pub const AFTER_CLOSE: i64 = IN_SESSION + 13 * 3_600_000 + 30 * 60_000;
 pub const DAY: &str = "2026-11-04";
 
 /// A clock the test moves by hand.

@@ -1,6 +1,6 @@
 //! Trading-session clock: pure functions from a Unix-millisecond timestamp to
-//! Dublin local time (Europe/Dublin, with daylight saving) and the 09:30 to
-//! 16:00 session (D22). Nothing here reads a clock.
+//! Dublin local time (Europe/Dublin, with daylight saving) and the 00:00 to
+//! 23:00 session (D22). Nothing here reads a clock.
 //!
 //! Weekends and holidays are not handled at this layer.
 
@@ -9,10 +9,10 @@ use crate::types::Timestamp;
 const MS_PER_MIN: i64 = 60_000;
 const MS_PER_HOUR: i64 = 3_600_000;
 const MS_PER_DAY: i64 = 86_400_000;
-/// Session opens at 09:30 local time.
-pub const OPEN_MS: i64 = 9 * MS_PER_HOUR + 30 * MS_PER_MIN;
-/// Session closes at 16:00 local time.
-pub const CLOSE_MS: i64 = 16 * MS_PER_HOUR;
+/// Session opens at 00:00 local time, together with the trading day.
+pub const OPEN_MS: i64 = 0;
+/// Session closes at 23:00 local time.
+pub const CLOSE_MS: i64 = 23 * MS_PER_HOUR;
 
 /// Days since 1970-01-01 for a civil date (proleptic Gregorian).
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
@@ -77,12 +77,12 @@ pub fn day_id(ts: Timestamp) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
-/// True from 09:30 (inclusive) to 16:00 (exclusive) local time.
+/// True from 00:00 (inclusive) to 23:00 (exclusive) local time.
 pub fn in_session(ts: Timestamp) -> bool {
     (OPEN_MS..CLOSE_MS).contains(&time_of_day_ms(ts))
 }
 
-/// True from 16:00 local time to midnight.
+/// True from 23:00 local time to midnight.
 pub fn after_close(ts: Timestamp) -> bool {
     time_of_day_ms(ts) >= CLOSE_MS
 }
@@ -93,7 +93,7 @@ fn local_to_utc(local: i64) -> Timestamp {
     local - utc_offset_minutes(guess) * MS_PER_MIN
 }
 
-/// The first 16:00 local instant strictly after `ts`.
+/// The first 23:00 local instant strictly after `ts`.
 pub fn next_close(ts: Timestamp) -> Timestamp {
     let midnight = local_ms(ts).div_euclid(MS_PER_DAY) * MS_PER_DAY;
     let today = local_to_utc(midnight + CLOSE_MS);

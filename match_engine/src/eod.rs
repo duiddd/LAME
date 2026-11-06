@@ -1,4 +1,4 @@
-//! The end-of-day timer (D22). It only wakes the journal at 16:00 Dublin
+//! The end-of-day timer (D22). It only wakes the journal at 23:00 Dublin
 //! time; the journal decides from its own timestamps whether the day has
 //! ended and writes `DayClose`. The timer is not on the matching path.
 
@@ -10,7 +10,7 @@ use crate::runtime::{stopped, Clock, JournalMsg, JournalTx};
 use crate::session;
 use crate::types::Timestamp;
 
-/// How long to wait from `now` until the next 16:00 local time. At least one
+/// How long to wait from `now` until the next 23:00 local time. At least one
 /// millisecond, so a timer that wakes marginally early cannot spin.
 pub fn delay_until_close(now: Timestamp) -> Duration {
     let ms = session::next_close(now).saturating_sub(now).max(1);

@@ -156,7 +156,7 @@ The only writer of the store and the only reader of the clock for commands.
   next `seq`, is committed, and is then handed to its engine.
 - Outputs from an engine get the next `seq` and the `prev_seq` of the previous
   output, are committed, and are then queued for D.
-- **Day close.** When a timestamp is at or after 16:00 Dublin time and the day
+- **Day close.** When a timestamp is at or after 23:00 Dublin time and the day
   has not been closed, `DayClose` is written first and every engine is told to
   close. Each engine answers with its outputs and then a done message.
 - **Day rollover.** When a timestamp falls on a later day, the journal opens
@@ -187,7 +187,7 @@ Before any port accepts work, `recovery::recover` replays today's store:
 
 While this runs the control port answers `/healthz` with 503 and refuses `/d`;
 the market-data port refuses subscribers. Afterwards the journal is asked to
-check the close once, so a start after 16:00 closes the day before any order.
+check the close once, so a start after 23:00 closes the day before any order.
 
 ## Market data
 
@@ -228,7 +228,7 @@ A subscriber that does not read cannot slow the engine or the others.
 
 ## End-of-day timer
 
-Sleeps until the next 16:00 Dublin time (`session::next_close`) and sends the
+Sleeps until the next 23:00 Dublin time (`session::next_close`) and sends the
 journal a `CloseCheck`. It decides nothing: the journal checks its own
 timestamp. If the timer wakes marginally early the journal does nothing and the
 timer sleeps again.
@@ -275,7 +275,7 @@ SYMBOLS=AAA:1:1,BBB:5:10        # NAME:tick:lot, comma separated
 
 ## Choices to be aware of
 
-- The session check (09:30 to 16:00 Dublin) lives in the engine as a pure
+- The session check (00:00 to 23:00 Dublin) lives in the engine as a pure
   predicate on the command timestamp, not in the journal. That keeps the
   `END_OF_DAY` rejection in the pair's own stream of outputs, in the same order
   on replay as live.

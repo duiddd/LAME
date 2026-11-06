@@ -1,4 +1,4 @@
-//! Dublin session clock: DST rules, 09:30 to 16:00 window, day ids, next close.
+//! Dublin session clock: DST rules, the 00:00 to 23:00 window, day ids, next close.
 
 use match_engine::session::{
     after_close, day_id, in_session, next_close, time_of_day_ms, utc_offset_minutes,
@@ -50,23 +50,28 @@ fn offset_for_other_years() {
 
 #[test]
 fn session_window_in_winter() {
-    // Winter: Dublin is UTC+0.
-    assert!(!in_session(utc(2026, 11, 4, 9, 29)));
-    assert!(in_session(utc(2026, 11, 4, 9, 30)));
-    assert!(in_session(utc(2026, 11, 4, 15, 59)));
-    assert!(!in_session(utc(2026, 11, 4, 16, 0)));
-    assert!(after_close(utc(2026, 11, 4, 16, 0)));
-    assert!(!after_close(utc(2026, 11, 4, 15, 59)));
+    // Winter: Dublin is UTC+0. The session runs from midnight to 23:00.
+    assert!(in_session(utc(2026, 11, 4, 0, 0)));
+    assert!(in_session(utc(2026, 11, 4, 12, 0)));
+    assert!(in_session(utc(2026, 11, 4, 22, 59)));
+    assert!(!in_session(utc(2026, 11, 4, 23, 0)));
+    assert!(!in_session(utc(2026, 11, 4, 23, 59)));
+    assert!(after_close(utc(2026, 11, 4, 23, 0)));
+    assert!(after_close(utc(2026, 11, 4, 23, 59)));
+    assert!(!after_close(utc(2026, 11, 4, 22, 59)));
+    assert!(!after_close(utc(2026, 11, 4, 0, 0)));
 }
 
 #[test]
 fn session_window_in_summer_is_one_hour_earlier_in_utc() {
-    // Summer: Dublin is UTC+1, so 09:30 local is 08:30 UTC.
-    assert!(!in_session(utc(2026, 7, 1, 8, 29)));
-    assert!(in_session(utc(2026, 7, 1, 8, 30)));
-    assert!(in_session(utc(2026, 7, 1, 14, 59)));
-    assert!(!in_session(utc(2026, 7, 1, 15, 0)));
-    assert!(after_close(utc(2026, 7, 1, 15, 0)));
+    // Summer: Dublin is UTC+1, so 23:00 local is 22:00 UTC and midnight local
+    // is 23:00 UTC the evening before.
+    assert!(in_session(utc(2026, 7, 1, 21, 59)));
+    assert!(!in_session(utc(2026, 7, 1, 22, 0)));
+    assert!(after_close(utc(2026, 7, 1, 22, 0)));
+    assert!(!in_session(utc(2026, 7, 1, 22, 59)));
+    assert!(in_session(utc(2026, 7, 1, 23, 0))); // 00:00 on 2 July, local
+    assert!(!after_close(utc(2026, 7, 1, 23, 0)));
 }
 
 #[test]
@@ -86,32 +91,43 @@ fn day_id_is_the_dublin_date() {
 }
 
 #[test]
-fn next_close_is_the_next_sixteen_hundred_local() {
-    // Winter: 16:00 local is 16:00 UTC.
-    assert_eq!(next_close(utc(2026, 11, 4, 9, 0)), utc(2026, 11, 4, 16, 0));
+fn next_close_is_the_next_twenty_three_hundred_local() {
+    // Winter: 23:00 local is 23:00 UTC.
+    assert_eq!(next_close(utc(2026, 11, 4, 9, 0)), utc(2026, 11, 4, 23, 0));
     assert_eq!(
-        next_close(utc(2026, 11, 4, 15, 59)),
-        utc(2026, 11, 4, 16, 0)
+        next_close(utc(2026, 11, 4, 22, 59)),
+        utc(2026, 11, 4, 23, 0)
     );
     // Exactly at the close the next one is tomorrow's.
-    assert_eq!(next_close(utc(2026, 11, 4, 16, 0)), utc(2026, 11, 5, 16, 0));
-    assert_eq!(next_close(utc(2026, 11, 4, 20, 0)), utc(2026, 11, 5, 16, 0));
-    // Summer: 16:00 local is 15:00 UTC.
-    assert_eq!(next_close(utc(2026, 7, 1, 9, 0)), utc(2026, 7, 1, 15, 0));
+    assert_eq!(next_close(utc(2026, 11, 4, 23, 0)), utc(2026, 11, 5, 23, 0));
+    assert_eq!(
+        next_close(utc(2026, 11, 4, 23, 30)),
+        utc(2026, 11, 5, 23, 0)
+    );
+    // Summer: 23:00 local is 22:00 UTC.
+    assert_eq!(next_close(utc(2026, 7, 1, 9, 0)), utc(2026, 7, 1, 22, 0));
 }
 
 #[test]
 fn next_close_across_daylight_saving_changes() {
-    // The Saturday before the March change is still winter time.
-    assert_eq!(next_close(utc(2026, 3, 28, 17, 0)), utc(2026, 3, 29, 15, 0));
-    // Sunday 25 October 2026: the clocks go back at 01:00 UTC; 16:00 is winter.
+    // The day before the March change is still winter time.
+    assert_eq!(next_close(utc(2026, 3, 28, 17, 0)), utc(2026, 3, 28, 23, 0));
+    // Sunday 29 March 2026: the clocks went forward at 01:00 UTC, so 23:00
+    // local is 22:00 UTC.
+    assert_eq!(next_close(utc(2026, 3, 29, 12, 0)), utc(2026, 3, 29, 22, 0));
+    // Saturday 24 October is summer time; on Sunday 25 the clocks go back at
+    // 01:00 UTC and 23:00 is winter time again.
     assert_eq!(
-        next_close(utc(2026, 10, 25, 2, 0)),
-        utc(2026, 10, 25, 16, 0)
+        next_close(utc(2026, 10, 24, 12, 0)),
+        utc(2026, 10, 24, 22, 0)
     );
     assert_eq!(
-        next_close(utc(2026, 10, 24, 17, 0)),
-        utc(2026, 10, 25, 16, 0)
+        next_close(utc(2026, 10, 25, 2, 0)),
+        utc(2026, 10, 25, 23, 0)
+    );
+    assert_eq!(
+        next_close(utc(2026, 10, 24, 23, 0)),
+        utc(2026, 10, 25, 23, 0)
     );
 }
 
@@ -121,7 +137,7 @@ fn next_close_is_always_a_close_and_strictly_later() {
     for _ in 0..2000 {
         let c = next_close(ts);
         assert!(c > ts);
-        assert_eq!(time_of_day_ms(c), 16 * 3_600_000);
+        assert_eq!(time_of_day_ms(c), 23 * 3_600_000);
         assert!(after_close(c) && !in_session(c));
         ts += 7 * 3_600_000 + 123_456;
     }

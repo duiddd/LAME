@@ -96,7 +96,7 @@ identifies it (D3).
    `Rejected(Expired)` and stop.
 2. **Check the session.** If the engine was built `with_session` and the
    predicate says `ts` is outside the session, emit `Rejected(EndOfDay)` and
-   stop. The service uses `session::in_session` (09:30 to 16:00 Dublin time);
+   stop. The service uses `session::in_session` (00:00 to 23:00 Dublin time);
    without it the engine is always open.
 3. **Validate the grid.** Price first (limit orders only), then quantity. A
    failure emits one `Rejected` event and stops; the order is not accepted and
@@ -161,7 +161,7 @@ a normal input of the engine, so replay reproduces the close exactly.
 A `DayClose` on an empty book, or a second one in a row, emits nothing.
 
 What the engine does **not** do, because it belongs to the journal (see
-`runtime.md`): deciding that the day is over (16:00 Dublin time, judged from
+`runtime.md`): deciding that the day is over (23:00 Dublin time, judged from
 the epoch-millisecond timestamp; weekends and holidays are not handled at this
 layer), writing `DayClose` first, and switching to the next day's event store
 with `seq` restarting at 1. The rejection of new orders outside the session is
