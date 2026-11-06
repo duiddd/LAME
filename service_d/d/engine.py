@@ -37,6 +37,12 @@ class Engine:
         self.view = BookView()
         self.cursor = tuple(self.store.get_meta("b_cursor", ["", 0]))  # last B output already turned into notifications
         self.tasks = []
+        self._spawned = set()
+
+    def _spawn(self, coro):
+        t = asyncio.get_running_loop().create_task(coro)
+        self._spawned.add(t)
+        t.add_done_callback(self._spawned.discard)
 
     # ================================================================ lifecycle
     def load(self):
@@ -166,34 +172,43 @@ class Engine:
                 out.append(Opposite(b["user_id"], b["price"], b["qty"] - b["filled"], None, True))
         return out
 
-    def _decision_row(self, order_id, decision, reason):
+    def _decision_row(self, order_id, decision, reason, price, qty, b_order_id=None, features=None):
+        day, seq = features or (self.b_client.day, self.b_client.last_seq)
         self.store.q("INSERT INTO decisions(order_id, decision, reason, rule_version, features_day, features_seq, "
-                     "decided_at) VALUES(?, ?, ?, ?, ?, ?, ?)", order_id, decision, reason, self.cfg.rule_version,
-                     self.b_client.day, self.b_client.last_seq, now_ms())
+                     "decided_at, price, qty, b_order_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", order_id, decision,
+                     reason, self.cfg.rule_version, day, seq, now_ms(), price, qty, b_order_id)
 
     def _reject_by_d(self, o: dict, reason: str):
         """Must be called inside a transaction."""
-        self._decision_row(o["order_id"], "REJECTED", reason)
+        self._decision_row(o["order_id"], "REJECTED", reason, o["price"], o["qty"])
         self.store.q("UPDATE orders SET state = 'REJECTED_BY_D', reason = ?, remaining_qty = 0 WHERE order_id = ?",
                      reason, o["order_id"])
         self._notify("RISK_REJECTED", o, {"reason": reason, "rule_version": self.cfg.rule_version})
 
     async def _approve_and_send(self, o: dict):
-        sent_at = now_ms()
         with self.store.tx() as st:
-            self._decision_row(o["order_id"], "APPROVED", None)
-            cur = st.q("INSERT INTO b_orders(order_id, user_id, symbol, side, type, price, qty, sent_at, state) "
-                       "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'IN_FLIGHT')", o["order_id"], o["user_id"], o["symbol"],
-                       o["side"], o["type"], o["price"], o["qty"], sent_at)
+            msg = self._create_b(o, o["price"], o["qty"])
+            self._decision_row(o["order_id"], "APPROVED", None, o["price"], o["qty"], msg["order_id"])
             st.q("UPDATE orders SET state = 'IN_FLIGHT' WHERE order_id = ?", o["order_id"])
+        await self._send_new(msg)
+
+    def _create_b(self, o: dict, price, qty) -> dict:
+        """A new order at B under a fresh b_order_id (RD24). Must be called inside a transaction."""
+        sent_at = now_ms()
+        cur = self.store.q("INSERT INTO b_orders(order_id, user_id, symbol, side, type, price, qty, sent_at, state) "
+                           "VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'IN_FLIGHT')", o["order_id"], o["user_id"], o["symbol"],
+                           o["side"], o["type"], price, qty, sent_at)
         b_id = cur.lastrowid
         self.b[b_id] = self.store.one("SELECT * FROM b_orders WHERE b_order_id = ?", b_id)
         msg = {"type": "new_order", "symbol": o["symbol"], "order_id": b_id, "user_id": o["user_id"],
-               "side": o["side"], "order_type": o["type"], "qty": o["qty"], "origin": "USER", "sent_at": sent_at}
-        if o["price"] is not None:
-            msg["price"] = o["price"]
+               "side": o["side"], "order_type": o["type"], "qty": qty, "origin": "USER", "sent_at": sent_at}
+        if price is not None:
+            msg["price"] = price
+        return msg
+
+    async def _send_new(self, msg: dict):
         if not await self.b_client.send(msg):
-            log.warning("new_order for b_order_id %s not sent (B disconnected); it will time out", b_id)
+            log.warning("new_order for b_order_id %s not sent (B disconnected); it will time out", msg["order_id"])
         if self.faults.take("disconnect_after_send"):
             await self.b_client.disconnect()
 
@@ -229,7 +244,9 @@ class Engine:
                     action, not_before = "SCHEDULED", b["sent_at"] + self.s.max_command_age_ms + self.s.cancel_margin_ms
                 else:
                     action, not_before = ("SENT" if self.ready else "QUEUED"), now
-                if old:   # D's own timeout cancel is already planned: A now owns it
+                if old:   # D's own cancel (timeout or modify) is already planned: A now owns it
+                    if old["origin"] == "MODIFY":
+                        self._modify_done(o, "REJECTED", "CANCELLED_BY_USER")
                     st.q("UPDATE cancels SET origin = 'A', action = ? WHERE order_id = ?", action, order_id)
                 else:
                     self._cancel_row(order_id, user_id, action, b_order_id=b["b_order_id"], not_before=not_before)
@@ -264,11 +281,108 @@ class Engine:
                      "filled_qty": o["filled_qty"], "remaining_qty": o["remaining_qty"],
                      "last_notify_seq": o["last_notify_seq"]}
 
+    # ---------------------------------------------------------------- modify (RD27)
+    # A modify is a cancel of the order's current b_order_id plus a new order at B under
+    # a fresh one, both inside D; A keeps the same order_id. `qty` is the new remaining
+    # quantity. Rules agreed with A (A document 5.4):
+    #   - the old order fills while being cancelled: new qty = qty minus what filled meanwhile;
+    #   - the old order is already filled (or nothing is left): MODIFY_RESULT REJECTED ALREADY_FINAL;
+    #   - old cancelled, then the new one refused (rules or B): ORDER_UPDATE CANCELLED, then
+    #     MODIFY_RESULT REJECTED;
+    #   - success: no ORDER_UPDATE for the old order; MODIFY_RESULT APPLIED once B accepts the new one.
     def modify(self, r: dict):
-        # TODO(11-06): modify as cancel + new order inside D (protocol doc 2.3, RD27).
-        # Open with Pin-Yun: the new quantity when the old order fills during the cancel,
-        # the reply when the old order is already filled, and the loss of time priority.
-        return 501, {"error": "NOT_IMPLEMENTED", "message": "modify is pending the 11-06 team discussion"}
+        order_id, user_id, price, qty = r["order_id"], r["user_id"], r.get("price"), r["qty"]
+        o = self._order(order_id)
+        if o is None or o["user_id"] != user_id:
+            return 404, {"error": "ORDER_NOT_FOUND"}
+        sym = self.cfg.symbols[o["symbol"]]
+        if o["type"] != "LIMIT":
+            return 400, {"error": "INVALID_REQUEST", "message": "only limit orders can be modified"}
+        if not isinstance(qty, int) or qty <= 0 or qty % sym["lot"]:
+            return 400, {"error": "INVALID_REQUEST", "message": "qty must be a positive multiple of the lot"}
+        if price is not None and (not isinstance(price, int) or price <= 0 or price % sym["tick"]):
+            return 400, {"error": "INVALID_REQUEST", "message": "price must be positive and on the tick grid"}
+        m = self.store.one("SELECT * FROM modifies WHERE order_id = ?", order_id)
+        if m and m["result"] is None:
+            if (m["price"], m["qty"]) == (price, qty):
+                return 202, self._modify_body(m)         # A resent the same modify
+            return 409, {"error": "MODIFY_IN_PROGRESS"}
+        if not self.ready:
+            self.metrics.refused.labels("RISK_UNAVAILABLE").inc()
+            return 503, {"error": "RISK_UNAVAILABLE"}
+        with self.store.tx() as st:
+            st.q("DELETE FROM modifies WHERE order_id = ?", order_id)
+            st.q("INSERT INTO modifies(order_id, user_id, price, qty, state, received_at) VALUES(?, ?, ?, ?, ?, ?)",
+                 order_id, user_id, price, qty, "RECEIVED", now_ms())
+            a_cancel = st.one("SELECT 1 FROM cancels WHERE order_id = ? AND origin = 'A'", order_id)
+            if o["state"] in FINAL or o["state"] == "REJECTED_BY_D":
+                self._modify_done(o, "REJECTED", "ALREADY_FINAL")
+            elif a_cancel:
+                self._modify_done(o, "REJECTED", "CANCEL_PENDING")
+            elif o["state"] != "LIVE":
+                self._modify_done(o, "REJECTED", "NOT_MODIFIABLE")   # not yet accepted by B
+            else:
+                b = self._current_b(order_id)
+                st.q("DELETE FROM cancels WHERE order_id = ?", order_id)   # only finished D-own rows can be here
+                st.q("UPDATE modifies SET state = 'CANCELLING', old_b_order_id = ?, filled_at_request = ? "
+                     "WHERE order_id = ?", b["b_order_id"], b["filled"], order_id)
+                self._cancel_row(order_id, user_id, "SENT", b_order_id=b["b_order_id"], not_before=now_ms(),
+                                 origin="MODIFY")
+        return 202, self._modify_body(self.store.one("SELECT * FROM modifies WHERE order_id = ?", order_id))
+
+    @staticmethod
+    def _modify_body(m: dict) -> dict:
+        body = {"user_id": m["user_id"], "order_id": m["order_id"], "action": m["state"]}
+        if m["result"]:
+            body.update(result=m["result"], reason=m["reason"])
+        return body
+
+    def _pending_modify(self, order_id: str):
+        return self.store.one("SELECT * FROM modifies WHERE order_id = ? AND result IS NULL", order_id)
+
+    def _modify_done(self, o: dict, result: str, reason=None, price=None, qty=None, rec=None, order_seq=None):
+        """Must be called inside a transaction."""
+        self.store.q("UPDATE modifies SET state = 'DONE', result = ?, reason = ? WHERE order_id = ?",
+                     result, reason, o["order_id"])
+        fields = {"result": result, "price": price, "qty": qty, "reason": reason}
+        if order_seq is not None:
+            fields["order_seq"] = order_seq
+        self._notify("MODIFY_RESULT", o, fields, rec)
+
+    def _modify_after_cancel(self, o: dict, old: dict, m: dict, rec: dict):
+        """B cancelled the old b order for a modify: decide on the replacement and send it."""
+        self._set_b(old, state="CANCELLED")
+        self.store.q("DELETE FROM cancels WHERE order_id = ?", o["order_id"])
+        filled_total = sum(x["filled"] for x in self.b.values() if x["order_id"] == o["order_id"])
+        price = m["price"] if m["price"] is not None else old["price"]
+        new_qty = m["qty"] - (rec["filled"] - m["filled_at_request"])
+        features = (rec["day"], rec["seq"])
+        if new_qty <= 0:
+            reason = "ALREADY_FINAL"           # everything the user still wanted filled meanwhile
+        else:
+            cand = {**o, "price": price, "qty": new_qty}
+            group = self.cfg.groups.get(o["user_id"], frozenset({o["user_id"]}))
+            reason = decide(cand, self._opposites(cand), group, self.cfg.rules)
+            if reason:
+                self._decision_row(o["order_id"], "REJECTED", reason, price, new_qty, features=features)
+        if reason:
+            self._set_order(o["order_id"], state="CANCELLED", reason=reason, filled_qty=filled_total, remaining_qty=0)
+            self._notify("ORDER_UPDATE", o, {"status": "CANCELLED", "reason": reason, "filled_qty": filled_total,
+                                             "remaining_qty": 0}, rec)
+            self._modify_done(o, "REJECTED", reason, rec=rec)
+            return
+        msg = self._create_b(o, price, new_qty)
+        self._decision_row(o["order_id"], "APPROVED", None, price, new_qty, msg["order_id"], features)
+        self._set_order(o["order_id"], state="IN_FLIGHT", remaining_qty=new_qty)
+        self.store.q("UPDATE modifies SET state = 'SENT', new_b_order_id = ?, new_price = ?, new_qty = ? "
+                     "WHERE order_id = ?", msg["order_id"], price, new_qty, o["order_id"])
+        self._spawn(self._send_new(msg))
+
+    def _modify_refused_at_b(self, o: dict, b: dict, reason: str, rec: dict):
+        """The replacement order ended without being accepted by B (rejected or never delivered)."""
+        m = self._pending_modify(o["order_id"])
+        if m and m["new_b_order_id"] == b["b_order_id"]:
+            self._modify_done(o, "REJECTED", reason, rec=rec)
 
     # ================================================================ D -> A: notifications
     def _notify(self, ntype: str, o: dict, fields: dict, b_rec: dict = None):
@@ -321,7 +435,13 @@ class Engine:
         if status == "ACCEPTED":
             self._set_b(b, state="LIVE", b_day=rec["day"], order_seq=rec["order_seq"])
             self._set_order(o["order_id"], state="LIVE", remaining_qty=rec["remaining"])
-            self._notify("ACCEPTED", o, {"order_seq": rec["order_seq"], "rule_version": self.cfg.rule_version}, rec)
+            m = self._pending_modify(o["order_id"])
+            if m and m["new_b_order_id"] == b["b_order_id"]:
+                self._modify_done(o, "APPLIED", price=b["price"], qty=rec["remaining"], rec=rec,
+                                  order_seq=rec["order_seq"])
+            else:
+                self._notify("ACCEPTED", o, {"order_seq": rec["order_seq"], "rule_version": self.cfg.rule_version},
+                             rec)
             if intent and intent["origin"] == "TIMEOUT":       # B was only slow: drop the automatic cancel
                 self.store.q("DELETE FROM cancels WHERE order_id = ?", o["order_id"])
             elif intent:                                        # A's cancel can go now
@@ -338,6 +458,8 @@ class Engine:
             if status == "FILLED" and intent:
                 self._resolve_cancel(o, intent, "ALREADY_FINAL")
         elif status == "CANCELLED":
+            if reason is None and intent and intent["origin"] == "MODIFY":
+                return self._modify_after_cancel(o, b, self._pending_modify(o["order_id"]), rec)
             if reason is None and intent and intent["origin"] == "TIMEOUT":
                 update["reason"] = "D_TIMEOUT"
             self._set_b(b, state="CANCELLED")
@@ -345,12 +467,13 @@ class Engine:
                             remaining_qty=0)
             self._notify("ORDER_UPDATE", o, update, rec)
             if intent:
-                self._resolve_cancel(o, intent, "CANCELLED")
+                self._resolve_cancel(o, intent, "CANCELLED", update["reason"])
         elif status == "REJECTED":       # B rejected the new order itself
             update["status"] = "EXPIRED" if reason == "EXPIRED" else "REJECTED"
             self._set_b(b, state="REJECTED_BY_B")
             self._set_order(o["order_id"], state="REJECTED_BY_B", reason=reason, remaining_qty=0)
             self._notify("ORDER_UPDATE", o, update, rec)
+            self._modify_refused_at_b(o, b, reason, rec)
             if intent:
                 self._resolve_cancel(o, intent, "ALREADY_FINAL")
 
@@ -362,12 +485,20 @@ class Engine:
             return
         self._set_b(b, state="NOT_DELIVERED")
         self._set_order(o["order_id"], state="NOT_DELIVERED", reason="NOT_DELIVERED", remaining_qty=0)
+        filled_total = sum(x["filled"] for x in self.b.values() if x["order_id"] == o["order_id"])
+        self._set_order(o["order_id"], filled_qty=filled_total)
         self._notify("ORDER_UPDATE", o, {"status": "REJECTED", "reason": "NOT_DELIVERED",
-                                         "filled_qty": 0, "remaining_qty": 0}, rec)
+                                         "filled_qty": filled_total, "remaining_qty": 0}, rec)
+        self._modify_refused_at_b(o, b, "NOT_DELIVERED", rec)
         if intent:
             self._resolve_cancel(o, intent, "ORDER_NOT_FOUND")
 
-    def _resolve_cancel(self, o, intent, result):
+    def _resolve_cancel(self, o, intent, result, reason=None):
+        if intent["origin"] == "MODIFY":     # the old order ended another way: the modify cannot go ahead
+            self.store.q("DELETE FROM cancels WHERE order_id = ?", o["order_id"])
+            if self._pending_modify(o["order_id"]):
+                self._modify_done(o, "REJECTED", "ALREADY_FINAL" if result != "CANCELLED" else (reason or result))
+            return
         self.store.q("UPDATE cancels SET result = ? WHERE order_id = ?", result, o["order_id"])
         if intent["origin"] == "A":
             self._notify("CANCEL_RESULT", o, {"result": result})

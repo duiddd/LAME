@@ -1,6 +1,6 @@
 # Service D (Risk Control) Tech Decisions Record
 
-Owner: Zongyan Yang · Status: draft, updated on 2026-11-05 after discussing with Pin-Yun and reading B's implementation. Parts marked "to discuss on 11-06" are not decided yet.
+Owner: Zongyan Yang · Status: draft, updated on 2026-11-06 after the team discussion and after reading A's and B's latest code (A's `feature/trading`, B's `resume_ok`).
 
 This document records D's decisions, their reasons and their consequences. The IDs use RD (Risk Decision) to avoid confusion with D1, D2 in the A, B and C documents. The design is in [service_d_architecture.md](service_d_architecture.md) and the interfaces in [service_d_protocol.md](service_d_protocol.md).
 
@@ -129,9 +129,9 @@ This document records D's decisions, their reasons and their consequences. The I
 ### RD16. Readiness conditions and failing closed
 
 - **Decision:** D takes new orders only when all of these hold: the shared config has been read; the connection to B is up and the handshake is done; D has caught up; the last write succeeded. Otherwise it replies 503 `RISK_UNAVAILABLE` at once.
-- **Catching up:** the `prev_seq` chain has no gap, and no new output has arrived for `CATCHUP_QUIET_MS` (300 ms by default).
-- **Reason:** deciding on stale features means the rules do not work; the proposal requires D to reject when it cannot decide. B's messages do not mark which ones are resent and which are live, and B sends no "resend finished" marker (`runtime.md`), so "a contiguous chain plus a quiet period" is the only way D can tell.
-- **Consequence:** if the resend pauses for longer than `CATCHUP_QUIET_MS`, D may think it has caught up too early. At course scale the resend is fast, so the risk is small. We will ask Bo to consider adding a "resend finished" marker, which would make the check exact (optional).
+- **Catching up:** B answers the resume with `resume_ok` carrying `through_seq`, the last output stored at that moment (added by Bo on 11-06). D has caught up once its `prev_seq` chain is contiguous up to `through_seq` in the day being resent.
+- **Reason:** deciding on stale features means the rules do not work; the proposal requires D to reject when it cannot decide. Resend and live records interleave, so the order of arrival does not show when the resend is over; `through_seq` is a fixed target, so it does.
+- **Fallback:** for a B without `resume_ok`, D uses the earlier rule: a contiguous chain and no new output for `CATCHUP_QUIET_MS` (300 ms by default).
 
 ### RD17. Linked accounts come from a shared seed file read by A, B and D
 
@@ -141,7 +141,7 @@ This document records D's decisions, their reasons and their consequences. The I
   - Reading a file is simpler than calling an A endpoint, and D does not have to wait for A to start.
   - B's wash-trading bots need the same list, and if all three read one file, the list is always the same.
 - **Alternative (not chosen):** D calls A's `GET /internal/linked-groups` at start-up. A would need one more endpoint, D's start-up would depend on A, and the bots would need to get the list another way.
-- **Consequence:** A and B need to agree to read this file (to discuss on 11-06).
+- **Consequence:** A agreed (11-06): A reads the same file and creates its seed users with these IDs (A document D16). B's bots still need to use it.
 
 ### RD18. Rule version = the rule config file
 
@@ -212,62 +212,53 @@ This document records D's decisions, their reasons and their consequences. The I
 - **Reason:** A's reconciliation needs it (A document D5 and section 9): when an order got a 202 but no notification for a long time, A needs to know whether D is still working on it or a notification was lost. Agreed in the discussion with Pin-Yun.
 - **Consequence:** a query result never releases funds; only notifications do.
 
-### RD27. D turns a modify into "cancel + new order" (details to discuss on 11-06)
+### RD27. D turns a modify into "cancel + new order"
 
-- **Decision:** A modifies through `POST /v1/modifies` under the same `order_id`. D first checks the new price and quantity against the rules; if they pass, it cancels the old `b_order_id`, and after B answers `CANCELLED` it assigns a new `b_order_id` and sends the new order; finally it notifies `MODIFY_RESULT`. One `order_id` maps to several `b_order_id`s, and the cumulative filled quantity adds them together.
+- **Decision:** A modifies through `POST /v1/modifies` under the same `order_id`; `qty` is the new remaining quantity. D cancels the current `b_order_id`; after B answers `CANCELLED`, the new quantity is `qty` minus what filled during the cancel, D checks the new order against the rules, assigns a new `b_order_id` and sends it; when B accepts it, D notifies `MODIFY_RESULT APPLIED`. One `order_id` maps to several `b_order_id`s, and the cumulative filled quantity adds them together. The details of each failure case are in protocol document 2.3; they follow A's answers (A document 5.4).
 - **Reason:** the proposal says a modify is sent to D under the same order ID (line 55), and reaches B as a cancel plus a new order (line 84), so the translation can only happen in D. The earlier draft said D has no modify endpoint, which did not match the proposal.
-- **To discuss on 11-06:**
-  - The new quantity when the old order fills partly during the cancel.
-  - The reason for `MODIFY_RESULT REJECTED` when the old order is already fully filled.
-  - Whether losing time priority on a modify is acceptable.
-- **Consequence:** between the cancel and the new order, the order is briefly off the book. Not implemented yet: the endpoint returns 501.
+- **Why the rules are checked after the cancel, not before:** the new quantity depends on what filled during the cancel, and the check must see the book without the old order.
+- **Consequence:** between the cancel and the new order, the order is briefly off the book and loses its time priority; A accepts this, since B has no amend. If the new order fails the rules, the old one is already gone, so A gets `ORDER_UPDATE CANCELLED` before `MODIFY_RESULT REJECTED`.
 
 ### RD28. Trading pairs are named like BTC-USDT, with tick/lot in a shared config file
 
 - **Decision:** trading pairs are written like `BTC-USDT`. Names, tick and lot are in a shared file `config/symbols.json`, read by A, B and D. D uses it to check the symbol and the tick/lot grid when an order arrives.
 - **Reason:** A, C and D already use `BTC-USDT` in their documents. With one config, the tick/lot values are always the same in every service. B's implementation currently uses the environment variable `SYMBOLS`, and `runtime.md` already says it will be replaced by a config file.
-- **Consequence:** the names need to be confirmed by everyone on 11-06, and the file format with Bo.
+- **Consequence:** names follow B (11-06); A's `symbols.json` already uses `BTC-USDT` and `ETH-USDT`. B still reads the pairs from the `SYMBOLS` environment variable, so D's file and B's variable must be kept the same until B reads a file.
 
 ### RD29. D does not handle trading hours
 
-- **Decision:** D does not check trading hours and does not define the trading day. B rejects new orders outside trading hours and cancels all resting orders at 16:00 (both with reason `END_OF_DAY`); D handles these as ordinary rejections and cancels and turns them into notifications. On a new trading day `seq` restarts from 1, D deduplicates by `(day, seq)`, and resume starts from 0.
+- **Decision:** D does not check trading hours and does not define the trading day. B rejects new orders outside trading hours and cancels all resting orders at 23:00 (both with reason `END_OF_DAY`); D handles these as ordinary rejections and cancels and turns them into notifications. On a new trading day `seq` restarts from 1, D deduplicates by `(day, seq)`, and when its last applied day is not today it resumes from 0.
 - **Reason:** trading hours are B's decision; D does not need to, and should not, check them a second time.
-- **Consequence:** B's trading hours are 09:30–16:00 Dublin time, so orders are rejected when testing outside them. This is B's concern; we will remind Bo when needed.
+- **Consequence:** B's trading hours are now 00:00–23:00 Dublin time (11-06). B keeps a daily close because its recovery replays only the current day. B moves to a new day only when a command of that day arrives, and commands only come from D, so D still gets the old day's last outputs after being down over midnight; only B also restarting after midnight would lose them, which we accept.
 
 ### RD30. Load shedding stays in A, but A should base it on the latency of the risk result
 
 - **Decision:** D does no load shedding itself, and its rules are always on (A document D13). D only replies 503 `RISK_BUSY` when its decision queue is full. We suggest A base its load shedding on "the time from placement to the risk result" (A's `lame_a_order_completion_seconds`) instead of "the latency of D's 202".
 - **Reason:** since D only replies "received", the 202 is always fast; however long the risk queue gets, A cannot see it, so the proposal's "shed load when D's p99 exceeds its budget" (line 58) would never trigger.
-- **Consequence:** A needs to change one metric; to tell Pin-Yun on 11-06.
+- **Consequence:** A needs to change one metric; to tell Pin-Yun.
 
 ## 8. Open items
 
-1. **Modify details (RD27):** to discuss on 11-06.
-2. **Timeout values:** `D_TIMEOUT` (≥ 1000 ms), `CANCEL_MARGIN`, `GATE_DEADLINE`, `DECISION_QUEUE_CAP`, set after the baseline.
-3. **Optional extension of R2:** whether to enable the window condition depends on the evaluation.
-4. **Format of the shared config files:** linked accounts and trading pairs (RD17, RD28).
+1. **Timeout values:** `D_TIMEOUT` (≥ 1000 ms), `CANCEL_MARGIN`, `GATE_DEADLINE`, `DECISION_QUEUE_CAP`, set after the baseline.
+2. **Optional extension of R2:** whether to enable the window condition depends on the evaluation.
+3. **One shared symbol file** once B reads pairs from a file (RD28).
 
 ## 9. Items to align with teammates
 
-### With Pin-Yun (A), 11-06
-1. Modify details (RD27).
-2. Review the notification fields (protocol document section 3) and confirm that everything needed for settlement is there.
-3. Base load shedding on the latency of the risk result (RD30).
-4. D keeps no record on a 503, so A needs no change; later A may treat a 503 as "certainly not received" and release the hold at once (RD11).
-5. Whether `POST /v1/notifications/rewind` meets the need of reconciliation (RD25).
-6. Linked accounts from the shared file, and integer `user_id`s for seed users (RD17, RD24).
+### With Pin-Yun (A)
+1. Base load shedding on the latency of the risk result (RD30).
+2. D keeps no record on a 503, so A needs no change; later A may treat a 503 as "certainly not received" and release the hold at once (RD11).
+3. Whether `POST /v1/notifications/rewind` meets the need of reconciliation (RD25).
 
 ### With Bo (B)
 1. When the bots (including the labelled manipulators) will be written. Label format: one record per order, `{order_id, user_id, label: LEGIT | SELF_TRADE | WASH_TRADE, scenario_id}`, with `order_id` as A's ULID. The bots place orders through A. Bo designs the scenarios, and they can include cases D will not catch.
-2. Read the trading pairs from the shared config file, named like `BTC-USDT` (RD28).
+2. Name the pairs `BTC-USDT` and `ETH-USDT` in `SYMBOLS`, with the same tick/lot (RD28).
 3. The wash-trading bots use the accounts in the shared linked-accounts file (RD17).
 4. For information: D assigns the integer order IDs sent to B (RD24); D cancels automatically after a timeout (RD13).
-5. Optional: a marker when the resume resend is finished, so D can tell exactly when it has caught up (RD16).
 
 ### With Rushabh (C)
 1. Prometheus scrapes D's `/metrics` (port 8400), and the dashboard adds D's metrics.
 
-### Everyone, 11-06
-1. Trading pair names and the shared config file (RD28).
-2. Who owns the root `docker-compose.yml`.
-3. The ADR: D only replies "received"; while D is down, both placement and settlement pause and funds stay frozen.
+### Everyone, later
+1. Who owns the root `docker-compose.yml` (A already has `service_a/docker-compose.yml`).
+2. The ADR: D only replies "received"; while D is down, both placement and settlement pause and funds stay frozen.

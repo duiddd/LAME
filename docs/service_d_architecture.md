@@ -1,6 +1,6 @@
 # Service D: Risk Control — Architecture
 
-**Owner:** Zongyan Yang · **The one question it answers:** Should this order be let through? · **Status:** draft, updated on 2026-11-05 after discussing with Pin-Yun and reading B's implementation. Parts marked "to discuss on 11-06" are not decided yet.
+**Owner:** Zongyan Yang · **The one question it answers:** Should this order be let through? · **Status:** draft, updated on 2026-11-06 after the team discussion and after reading A's and B's latest code (A's `feature/trading`, B's `resume_ok`).
 
 This document describes the design of Service D. The reason behind each choice is in [service_d_tech_decisions.md](service_d_tech_decisions.md) (decision IDs RD1, RD2, …; the R prefix avoids confusion with D1, D2 in the A, B and C documents). The interfaces are in [service_d_protocol.md](service_d_protocol.md).
 
@@ -14,7 +14,7 @@ D is the risk gate between A and B. For every order from A, D either lets it thr
   - Notifying A of the risk decision and of all of B's results, **in order and reliably** (RD6, RD25).
   - Translating between A's ULID and B's integer order IDs (RD24).
   - A status query by `order_id` for A's reconciliation (RD26).
-  - Turning a modify into "cancel + new order" (RD27; details to discuss on 11-06).
+  - Turning a modify into "cancel + new order" (RD27).
   - Making sure every order reaches a final state (automatic cancel after a timeout, section 7).
   - Rule evaluation; failure-injection scripts and runbook (shared work in the proposal); leading the ADR for the synchronous risk gate.
 - **Out of scope:** AI or machine learning; a human review queue; balance, order-size and rate-limit checks, and load shedding (A); matching and trading hours (B); news and Q&A (C); automatic account suspension; forced liquidation and overnight margin (a stretch goal, not in the core, RD20).
@@ -179,7 +179,7 @@ D takes new orders only when it is **ready**; otherwise it replies 503 `RISK_UNA
 
 1. The linked accounts and trading pairs have been read from the shared files.
 2. The WebSocket to B is connected and the resume handshake is done.
-3. Caught up: the `prev_seq` chain has no gap, and no new output has arrived for `CATCHUP_QUIET_MS`. B does not mark which records are resent and sends no "resend finished" marker, so this is the only way to tell; a marker from B would make it exact.
+3. Caught up: the `prev_seq` chain has no gap up to `through_seq` from B's `resume_ok` (the last output B had stored when the handshake was served). For a B without `resume_ok`, D falls back to a quiet period of `CATCHUP_QUIET_MS`.
 4. The last write to SQLite succeeded. If a write fails, D stops taking orders; it does not degrade.
 
 If the decision queue is full, D replies 503 `RISK_BUSY` at once. If an order waits in the queue past `GATE_DEADLINE` without a decision, it is rejected with `RISK_TIMEOUT`, and A is notified.
@@ -251,22 +251,19 @@ Metrics: decision latency (histogram), rejections by reason, number of 503s, dec
 ## 15. Needed from other services
 
 - **A (Pin-Yun):**
-  - Review the notification fields (protocol document section 3).
-  - Modify details (to discuss on 11-06, protocol document 2.3).
   - Base load shedding on the time from placement to the risk result (A's `lame_a_order_completion_seconds`), not on the latency of D's 202.
   - Confirm that `POST /v1/notifications/rewind` meets A's need to "ask D to resend" during reconciliation.
-  - Use integer `user_id`s for seed users, matching the shared linked-accounts file.
+  - Done: A reads the same `linked_accounts.json` and uses integer `user_id`s; A answered the modify questions (A document 5.4).
 - **B (Bo):**
   - Progress on the bots (including the labelled manipulators), and labels in D's format.
-  - Read the trading pairs from the shared config file, named like `BTC-USDT` (to discuss on 11-06).
+  - Name the pairs `BTC-USDT` and `ETH-USDT` in `SYMBOLS`, with the same tick/lot as A and D.
   - The wash-trading bots use the accounts in the shared linked-accounts file.
-  - Optional: a marker when the resume resend is finished.
+  - Done: `resume_ok` with `through_seq`.
 - **C (Rushabh):** Prometheus scrapes D's `/metrics` (8400), and the dashboard adds D's metrics.
-- **Everyone (11-06):** the trading pair config; who owns the root `docker-compose.yml`; the ADR.
+- **Everyone (later):** who owns the root `docker-compose.yml`; the ADR.
 
 ## 16. Open items
 
-1. **Modify details (11-06):** the new quantity when the old order fills partly during the cancel; the reply when the old order is already filled; whether losing time priority on a modify is acceptable.
-2. **Timeout values:** `D_TIMEOUT` (≥ 1000 ms), `CANCEL_MARGIN`, `GATE_DEADLINE`, `DECISION_QUEUE_CAP`, set after the baseline.
-3. **Optional extension of R2:** whether to enable the window condition depends on the evaluation.
-4. **Format of the trading pair config file:** to confirm with Bo.
+1. **Timeout values:** `D_TIMEOUT` (≥ 1000 ms), `CANCEL_MARGIN`, `GATE_DEADLINE`, `DECISION_QUEUE_CAP`, set after the baseline.
+2. **Optional extension of R2:** whether to enable the window condition depends on the evaluation.
+3. **One shared symbol file:** B still reads `SYMBOLS` from the environment; once B reads a file, D should read the same one.

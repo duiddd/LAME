@@ -12,11 +12,11 @@ Design: `docs/service_d_architecture.md`, `docs/service_d_protocol.md`,
 | Path | What it is |
 | --- | --- |
 | `d/api.py` | HTTP interface on :8400 |
-| `d/engine.py` | Orders, decisions, cancels, timeouts, B outputs → notifications |
+| `d/engine.py` | Orders, decisions, cancels, modifies, timeouts, B outputs → notifications |
 | `d/rules.py` | The two rules, pure functions |
-| `d/bclient.py` | The one WebSocket to B's `/d`: resume, dedup, chain order, catch-up |
+| `d/bclient.py` | The one WebSocket to B's `/d`: resume, dedup, chain order, catch-up to `resume_ok`'s `through_seq` |
 | `d/notifier.py` | Outbox sender to A's `POST /internal/order-events` |
-| `d/store.py` | SQLite (WAL): orders, decisions, id map, cancels, outbox |
+| `d/store.py` | SQLite (WAL): orders, decisions, id map, cancels, modifies, outbox |
 | `config/` | Linked accounts and trading pairs (to be shared with A and B) |
 | `rules/v1.json` | Rule switches; its name and hash give `rule_version` |
 | `d/book.py` | D's book view from B's outputs, shared by the engine and the replay |
@@ -52,7 +52,7 @@ of 1 ms at 200 orders/s and 2 ms at 1000 orders/s. These numbers do not include 
 | --- | --- |
 | `POST /v1/orders` | Place an order. `202` = received; `503` = not taken, no record kept |
 | `POST /v1/cancels` | Cancel; the result arrives as a `CANCEL_RESULT` notification |
-| `POST /v1/modifies` | **Not implemented yet** (`501`), pending the team discussion |
+| `POST /v1/modifies` | Modify (cancel + new order inside D, same `order_id`); the result arrives as `MODIFY_RESULT` |
 | `GET /v1/orders/{order_id}?user_id=` | Order state, for A's reconciliation |
 | `POST /v1/notifications/rewind` | Resend notifications from `from_seq` |
 | `GET /healthz`, `GET /metrics` | Readiness and Prometheus metrics |
@@ -67,10 +67,7 @@ of 1 ms at 200 orders/s and 2 ms at 1000 orders/s. These numbers do not include 
 
 ## Open items
 
-- Modify (cancel + new order inside D): waiting for the team discussion.
-- Caught-up detection: B sends no "resend finished" marker and does not mark live
-  records, so D treats itself as caught up when its output chain is contiguous and
-  nothing new has arrived for `CATCHUP_QUIET_MS`. A marker from B would make this exact.
-- `config/` should become one shared folder read by A, B and D.
+- `config/` should become one shared folder read by A, B and D. A already reads the
+  same `linked_accounts.json`; B still takes its pairs from the `SYMBOLS` variable,
+  which must match `config/symbols.json`.
 - Not yet tested against B's real engine, and not yet in the root `docker-compose.yml`.
-- The replay does not cover modify yet (modify is not implemented).

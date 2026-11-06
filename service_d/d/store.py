@@ -2,7 +2,7 @@
 
 What is stored (architecture doc section 5): A's orders, decisions, the id map to
 B's integer order ids, cancel intents and tombstones, the notification outbox and
-two cursors. B's own outputs are not stored: B's event store is the source of truth.
+two cursors, and each order's latest modify. B's own outputs are not stored: B's event store is the source of truth.
 """
 import json
 import sqlite3
@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS decisions (
     decision_no INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL,
     decision TEXT NOT NULL, reason TEXT, rule_version TEXT NOT NULL,
-    features_day TEXT, features_seq INTEGER, decided_at INTEGER NOT NULL
+    features_day TEXT, features_seq INTEGER, decided_at INTEGER NOT NULL,
+    price INTEGER, qty INTEGER, b_order_id INTEGER   -- what was decided; set for every decision
 );
 -- AUTOINCREMENT: b_order_id is never reused, so it never repeats for a user within a day (B D2).
 CREATE TABLE IF NOT EXISTS b_orders (
@@ -33,6 +34,14 @@ CREATE TABLE IF NOT EXISTS cancels (
     order_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, origin TEXT NOT NULL, action TEXT,
     tombstone INTEGER NOT NULL DEFAULT 0, b_order_id INTEGER,
     send_not_before INTEGER, sent_at INTEGER, result TEXT, received_at INTEGER NOT NULL
+);
+-- One row per order: its latest modify (RD27). state: CANCELLING (old order being
+-- cancelled at B), SENT (replacement sent), DONE (MODIFY_RESULT written).
+CREATE TABLE IF NOT EXISTS modifies (
+    order_id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, price INTEGER, qty INTEGER NOT NULL,
+    state TEXT NOT NULL, old_b_order_id INTEGER, filled_at_request INTEGER,
+    new_b_order_id INTEGER, new_price INTEGER, new_qty INTEGER,
+    result TEXT, reason TEXT, received_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS outbox (
     notify_seq INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT,
@@ -49,6 +58,11 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
+        for col in ("price INTEGER", "qty INTEGER", "b_order_id INTEGER"):   # databases made before 11-06
+            try:
+                self.db.execute(f"ALTER TABLE decisions ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
         self.write_ok = True
 
     # -- transactions ---------------------------------------------------

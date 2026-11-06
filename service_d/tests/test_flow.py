@@ -196,7 +196,9 @@ async def test_http_api(make_engine, fake_a):
         q = (await c.get("/v1/orders/O1", params={"user_id": 7})).json()
         assert q["state"] == "LIVE" and q["decision"] == "APPROVED" and q["last_notify_seq"] == 1
         assert (await c.get("/v1/orders/nope", params={"user_id": 7})).status_code == 404
-        assert (await c.post("/v1/modifies", json={"user_id": 7, "order_id": "O1", "qty": 2})).status_code == 501
+        r = await c.post("/v1/modifies", json={"user_id": 7, "order_id": "O1", "qty": 2})
+        assert r.status_code == 202 and r.json()["action"] == "CANCELLING"
+        await wait_until(lambda: fake_a.of("O1", "MODIFY_RESULT"))
         assert (await c.get("/healthz")).json()["ready"] is True
         assert b"lame_d_decisions_total" in (await c.get("/metrics")).content
         assert (await c.post("/admin/faults", json={"decision_delay_ms": 5})).json()["decision_delay_ms"] == 5

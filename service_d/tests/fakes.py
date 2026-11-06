@@ -31,6 +31,9 @@ class FakeB:
         self.ws = None
         self.drop_new_orders = 0  # silently lose the next N new_order commands
         self.commands = []
+        self.send_resume_ok = True  # False: behave like a B from before resume_ok
+        self.hold_cancels = False   # True: keep cancel_order commands until release_cancels()
+        self.held = []
         self.server = None
         self.port = None
 
@@ -52,7 +55,11 @@ class FakeB:
         assert first["type"] == "resume", first
         if self.ws:
             await self.ws.close()
-        for rec in [r for r in self.outputs if r["seq"] > first["from_seq"]]:
+        today_out = [r for r in self.outputs if r["day"] == self.day]   # B resends its current day only
+        if self.send_resume_ok:
+            await ws.send(json.dumps({"type": "resume_ok", "from_seq": first["from_seq"],
+                                      "through_seq": today_out[-1]["seq"] if today_out else 0}))
+        for rec in [r for r in today_out if r["seq"] > first["from_seq"]]:
             await ws.send(json.dumps(rec))
         self.ws = ws
         try:
@@ -63,6 +70,16 @@ class FakeB:
         finally:
             if self.ws is ws:
                 self.ws = None
+
+    def new_day(self, day):
+        """B moves to a new trading day: a new store, seq from 1."""
+        self.day, self.seq, self.last_out = day, 0, 0
+
+    async def release_cancels(self):
+        self.hold_cancels = False
+        held, self.held = self.held, []
+        for c in held:
+            await self._command(c, record=False)
 
     async def close_day(self):
         """B's end of day: every resting order is cancelled with END_OF_DAY (B document D22)."""
@@ -84,8 +101,12 @@ class FakeB:
                          "order_id": o.get("order_id"), "user_id": o.get("user_id"), "status": status,
                          "filled": o.get("filled", 0), "remaining": o.get("remaining", 0), "reason": reason})
 
-    async def _command(self, c):
-        self.commands.append(c)
+    async def _command(self, c, record=True):
+        if record:
+            self.commands.append(c)
+        if c["type"] == "cancel_order" and self.hold_cancels:
+            self.held.append(c)
+            return
         if c["type"] == "new_order" and self.drop_new_orders:
             self.drop_new_orders -= 1
             return

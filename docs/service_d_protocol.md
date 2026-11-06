@@ -1,6 +1,6 @@
 # Service D: Risk Control — Communication Protocol
 
-**Owner:** Zongyan Yang · **Status:** draft, updated on 2026-11-05 after discussing with Pin-Yun and reading B's implementation. Parts marked "to discuss on 11-06" are not decided yet.
+**Owner:** Zongyan Yang · **Status:** draft, updated on 2026-11-06 after the team discussion and after reading A's and B's latest code (A's `feature/trading`, B's `resume_ok`).
 
 This document defines the interfaces between D and A and B. The design background is in [service_d_architecture.md](service_d_architecture.md), and the reasons are in [service_d_tech_decisions.md](service_d_tech_decisions.md). For D ↔ B, B's implementation is the reference (`match_engine/doc/runtime.md` on the `feature/match_engine` branch).
 
@@ -24,7 +24,7 @@ This document defines the interfaces between D and A and B. The design backgroun
   - `b_order_id`: an integer assigned by D and used only between D and B (B's `order_id` is a `u64`). D assigns it from a **global counter that is never reset**, so it never repeats for a user within a day (B document D2). After a modify, one `order_id` maps to several `b_order_id`s.
   - `order_seq`: the number B gives an order when it accepts it. B's `trade` refers to orders by it.
 - `user_id`: A's integer user ID. D passes it to B unchanged.
-- `symbol`: written like `BTC-USDT` (to be confirmed by everyone on 11-06). It must be a pair in the shared symbol config (section 5).
+- `symbol`: written like `BTC-USDT`. Names follow B's pair list; A uses the same names. It must be a pair in the symbol config (section 5).
 - `day`: B's trading day, the Dublin local date, as `YYYY-MM-DD`. A record from B is identified by `(day, seq)`, and `seq` restarts from 1 every day.
 - Ports: D's HTTP interface is on **8400**, A's on **8000**, B's control port on **11659**. All of them are open only inside the compose network.
 
@@ -130,7 +130,7 @@ Cancels are not checked against the rules. D handles a cancel according to the o
 - Cancels are idempotent: repeating a cancel does not send it to B twice.
 - The reply only tells A what D plans to do. **The result of the cancel is the `CANCEL_RESULT` notification.**
 
-### 2.3 Modify `POST /v1/modifies` (to discuss on 11-06)
+### 2.3 Modify `POST /v1/modifies`
 
 The proposal says that a modify is sent to D under the same `order_id`, and becomes "cancel + new order" at B (proposal lines 55 and 84). So D does the translation (RD27).
 
@@ -142,20 +142,32 @@ The proposal says that a modify is sent to D under the same `order_id`, and beco
 
 `qty` is the new **remaining** quantity (A document 5.4); `price` can be left out if it does not change.
 
-**What D does (draft):**
+Only limit orders that B has accepted (`LIVE` in D) can be modified.
 
-1. Check the new price and quantity against the rules as a new order (R1, R2). If they fail: notify `MODIFY_RESULT REJECTED`; the original order stays as it is.
-2. If they pass: send `cancel_order` for the old `b_order_id`.
-3. When B answers `CANCELLED`: assign a new `b_order_id` and send `new_order` with the new price and quantity. From then on, the events of both `b_order_id`s are translated back to the same `order_id`.
-4. When B accepts the new order, notify `MODIFY_RESULT APPLIED`.
+**What D does** (rules agreed with A, A document 5.4):
 
-**Reply:** 202 `{"order_id": "...", "status": "MODIFYING"}`.
+1. Record the modify and send `cancel_order` for the order's current `b_order_id`. D remembers how much had filled at that moment.
+2. When B answers `CANCELLED`: the new quantity is `qty` minus what filled while the cancel was on its way, so the user never gets more than they asked for. Then check the new price and quantity against the rules as a new order (R1, R2), on the book without the old order.
+3. If they pass: assign a new `b_order_id` and send `new_order`. From then on, the events of every `b_order_id` of this order are translated back to the same `order_id`, and the filled quantity adds them together.
+4. When B accepts the new order, notify `MODIFY_RESULT APPLIED` with the actual `price` and `qty`. D sends no `ORDER_UPDATE CANCELLED` and no second `ACCEPTED` for a successful modify.
 
-**Not implemented yet** (the endpoint returns 501). To discuss on 11-06:
+When the modify cannot go ahead:
 
-- If the old order fills partly while it is being cancelled, is the new quantity the requested `qty`, or `qty` minus what filled in the meantime?
-- If the old order is already fully filled before the cancel (B answers `ORDER_NOT_FOUND`): notify `MODIFY_RESULT REJECTED` with reason `ALREADY_FINAL`?
-- Between the cancel and the new order, the order is briefly off the book and loses its time priority. Is that acceptable (the proposal's "cancel + new order" already works this way)?
+| Case | Notifications |
+| --- | --- |
+| The order is already final, or B has not accepted it yet | `MODIFY_RESULT REJECTED` (`ALREADY_FINAL` / `NOT_MODIFIABLE`); the order stays as it is |
+| A cancel from A is already pending | `MODIFY_RESULT REJECTED` `CANCEL_PENDING` |
+| The old order fills completely during the cancel | `ORDER_UPDATE FILLED`, then `MODIFY_RESULT REJECTED` `ALREADY_FINAL` |
+| Nothing is left after subtracting the fills | `ORDER_UPDATE CANCELLED`, then `MODIFY_RESULT REJECTED` `ALREADY_FINAL` |
+| The new order fails the rules | `ORDER_UPDATE CANCELLED` (reason `SELF_TRADE` / `WASH_TRADE`), then `MODIFY_RESULT REJECTED` with the same reason |
+| B rejects the new order, or it never reaches B | `ORDER_UPDATE` (`REJECTED` / `EXPIRED`, or `REJECTED NOT_DELIVERED`), then `MODIFY_RESULT REJECTED` with the same reason |
+| A cancels while the old order is being cancelled | `MODIFY_RESULT REJECTED` `CANCELLED_BY_USER`, then the usual `ORDER_UPDATE CANCELLED` and `CANCEL_RESULT` |
+
+A cancel that arrives after the new order was sent applies to the new order as usual.
+
+**Reply:** 202 `{"user_id": 1024, "order_id": "...", "action": "CANCELLING"}` (or `"action": "DONE"` with `result` and `reason` when it was refused at once). The same modify sent again gets the same reply; a different modify while one is pending gets 409 `MODIFY_IN_PROGRESS`; an unknown order gets 404; a market order or a bad price/qty gets 400; while D is not ready, 503 `RISK_UNAVAILABLE` with no record kept.
+
+The order is off the book between the cancel and the new order and loses its time priority. This is accepted, since B has no amend (A document 5.4).
 
 ### 2.4 Query `GET /v1/orders/{order_id}?user_id=1024`
 
@@ -296,13 +308,15 @@ A uses `(b_day, order_seq)` as the order's number at B (A's `b_order_seq`).
 | `ORDER_NOT_FOUND` | The order never reached B and never will (RD13) |
 | `ALREADY_FINAL` | The order is already filled or otherwise final; it cannot be cancelled |
 
-**`MODIFY_RESULT`**: the result of a modify (to discuss on 11-06).
+**`MODIFY_RESULT`**: the result of a modify (section 2.3).
 
 ```json
-{ "result": "APPLIED", "price": 6420000, "qty": 2, "reason": null }
+{ "result": "APPLIED", "price": 6420000, "qty": 2, "reason": null, "order_seq": 57 }
 ```
 
-`result`: `APPLIED` or `REJECTED`; for `REJECTED`, `reason` is `SELF_TRADE`, `WASH_TRADE`, `ALREADY_FINAL`, etc.
+- `result`: `APPLIED` or `REJECTED`.
+- For `APPLIED`, `price` and `qty` are what is now on the book (`qty` is the remaining quantity, possibly less than A asked for), and `order_seq` is the new order's position at B.
+- For `REJECTED`, `reason` is one of `ALREADY_FINAL`, `NOT_MODIFIABLE`, `CANCEL_PENDING`, `CANCELLED_BY_USER`, `SELF_TRADE`, `WASH_TRADE`, `NOT_DELIVERED`, or B's reason (`EXPIRED`, `INVALID_PRICE`, ...).
 
 ### 3.4 Order
 
@@ -332,7 +346,8 @@ B's implementation is the reference (`match_engine/doc/runtime.md`).
 ### 4.1 Connection
 
 - Address: `ws://service-b:11659/d`. Only one connection at a time; a new connection closes the old one.
-- The first message must be `{"type":"resume","from_seq":N}`. B resends all of today's outputs with `seq > N`, and at the same time pushes new outputs.
+- The first message must be `{"type":"resume","from_seq":N}`. B answers first with `{"type":"resume_ok","from_seq":N,"through_seq":M}`, where `M` is the last output stored at that moment, then resends its current day's outputs with `seq > N`, and at the same time pushes new outputs.
+- D asks from its last applied `seq` when that was today, and from 0 otherwise (for example after a night away). B moves to a new day only when the first command of the new day arrives, and all commands come from D, so after a night away B may still be serving the old day. Asking from 0 covers both cases; records D already applied are dropped by `(day, seq)`.
   - Reconnect: N = the largest `seq` D has applied.
   - D restart: N = 0, and D rebuilds its features from the start of the day (RD15).
   - New trading day: start from 0.
@@ -372,7 +387,7 @@ B's implementation is the reference (`match_engine/doc/runtime.md`).
 
 - **Deduplication:** the resend and the live push can interleave and repeat, so D deduplicates by `(day, seq)`.
 - **Applying in chain order:** if a record arrives before the one it follows, D buffers it and applies it once the `prev_seq` chain connects, so every output is applied exactly once and in B's order. If a gap is not filled within `GAP_TIMEOUT_MS`, D disconnects and reconnects.
-- **Catching up (RD16):** B's messages do not say which ones are resent and which are live, and B sends no "resend finished" marker. So D counts itself caught up when the `prev_seq` chain is contiguous and no new output has arrived for `CATCHUP_QUIET_MS` (300 ms by default). A "resend finished" marker from B would make this exact (section 9).
+- **Catching up (RD16):** D is caught up once its chain is contiguous up to `through_seq` from `resume_ok`, in the day being resent; records after it are live. If `through_seq ≤ from_seq` there is nothing to resend. For a B without `resume_ok`, D falls back to: the chain is contiguous and no new output has arrived for `CATCHUP_QUIET_MS`.
 - **Translating IDs:** the `order_id` in an `order_event` is a `b_order_id`, and a `trade` uses `order_seq`. D translates both to A's `order_id` with its ID map (RD24).
 - **Generating notifications:** each output updates the features and is turned into the matching notification in the outbox. After a restart, when D replays the day's outputs from 0, outputs that already produced notifications do not produce them again (RD15).
 
@@ -389,7 +404,7 @@ B's implementation is the reference (`match_engine/doc/runtime.md`).
 
 ### 4.6 Trading hours
 
-D does not check trading hours. B rejects new orders outside 09:30–16:00 Dublin time and cancels all resting orders at 16:00, in both cases with reason `END_OF_DAY`. D handles these as ordinary rejections and cancels and turns them into notifications. On a new trading day `seq` restarts from 1, and D deduplicates by `(day, seq)`.
+D does not check trading hours. B rejects new orders outside 00:00–23:00 Dublin time and cancels all resting orders at 23:00, in both cases with reason `END_OF_DAY`. D handles these as ordinary rejections and cancels and turns them into notifications. On a new trading day `seq` restarts from 1, and D deduplicates by `(day, seq)`. Because B only moves to the new day when D sends its first command of that day, D gets the old day's last outputs (including the 23:00 cancels) even if it was down over midnight. The only case that loses them is B also restarting after midnight while D is down; we accept this.
 
 ## 5. Shared config files (read by A, B and D)
 
@@ -410,7 +425,7 @@ Two static files in one shared folder (for example `config/`), mounted into A, B
 - A user belongs to at most one group; a user in no group is a group of one.
 - A creates its seed users from it; B's wash-trading bots pick accounts from it; D's R2 uses it.
 
-**Trading pairs `config/symbols.json`** (format to confirm with Bo on 11-06; B currently uses the environment variable `SYMBOLS`)
+**Trading pairs `config/symbols.json`** (names and tick/lot must match B's `SYMBOLS` environment variable and A's `symbols.json`; A's file has the same two pairs)
 
 ```json
 { "symbols": [
@@ -564,11 +579,8 @@ A                         D                              B
 
 ## 9. To confirm
 
-1. **(Pin-Yun, 11-06)** Modify details (2.3).
-2. **(Pin-Yun)** Review the notification fields in section 3, and confirm that everything A needs for settlement is there.
-3. **(Pin-Yun)** Base A's load shedding on the time from placement to the risk result (A's `lame_a_order_completion_seconds`), not on the latency of D's 202. D's 202 is always fast, so it does not show the queueing inside D.
-4. **(Pin-Yun)** Whether `POST /v1/notifications/rewind` meets A's need to "ask D to resend from `notify_seq`" during reconciliation.
-5. **(Everyone, 11-06)** Trading pairs named like `BTC-USDT`, with tick/lot in the shared config file (section 5); who owns the root `docker-compose.yml`.
-6. **(Bo)** Bot label format: one record per order, `{order_id, user_id, label: LEGIT | SELF_TRADE | WASH_TRADE, scenario_id}`, with `order_id` as A's ULID.
-7. **(Everyone)** Values for `CANCEL_MARGIN`, `GATE_DEADLINE` and `D_TIMEOUT` (`D_TIMEOUT ≥ 1000 ms`).
-8. **(Bo, optional)** Whether B can send a marker when the resume resend is finished, for example `{"type":"resume_done","last_seq":N}`. D works without it (4.4), but with it the catch-up check would be exact.
+1. **(Pin-Yun)** Base A's load shedding on the time from placement to the risk result (A's `lame_a_order_completion_seconds`), not on the latency of D's 202. D's 202 is always fast, so it does not show the queueing inside D.
+2. **(Pin-Yun)** Whether `POST /v1/notifications/rewind` meets A's need to "ask D to resend from `notify_seq`" during reconciliation.
+3. **(Everyone, later)** Who owns the root `docker-compose.yml` (A already has one in `service_a/`); the ADR.
+4. **(Bo)** Bot label format: one record per order, `{order_id, user_id, label: LEGIT | SELF_TRADE | WASH_TRADE, scenario_id}`, with `order_id` as A's ULID.
+5. **(Everyone)** Values for `CANCEL_MARGIN`, `GATE_DEADLINE` and `D_TIMEOUT` (`D_TIMEOUT ≥ 1000 ms`).

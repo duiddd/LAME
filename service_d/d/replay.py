@@ -6,7 +6,8 @@ For each decision, in decision_no order:
   3. run the same rules again and compare with the recorded decision.
 
 RISK_TIMEOUT and CANCELLED_BEFORE_SUBMIT are not rule decisions (they depend on time
-and on A's requests), so they are counted but not recomputed.
+and on A's requests), so they are counted but not recomputed. A modify's replacement order is a decision of
+its own, recomputed on the price and quantity recorded with it.
 
 Usage:
   python -m d.replay --d-db data/d.db --b-events /data/events-2026-11-05.db [...]
@@ -74,7 +75,9 @@ def replay(d_db: str, b_outputs: list, static) -> dict:
         elif d["rule_version"] != static.rule_version:
             report["other_rule_version"] += 1
         else:
-            o = orders[d["order_id"]]
+            o = dict(orders[d["order_id"]])
+            if d.get("qty") is not None:      # a modify's replacement is decided on its own price and qty
+                o.update(price=d["price"], qty=d["qty"])
             opp = view.opposites(o["symbol"], OPPOSITE[o["side"]])
             opp += [Opposite(b["user_id"], b["price"], b["qty"], None, True) for b in approved
                     if b["b_order_id"] not in seen and b["symbol"] == o["symbol"] and b["side"] == OPPOSITE[o["side"]]]
@@ -87,7 +90,10 @@ def replay(d_db: str, b_outputs: list, static) -> dict:
                 report["mismatches"].append({"decision_no": d["decision_no"], "order_id": d["order_id"],
                                              "recorded": d["reason"] or "APPROVED", "replayed": again or "APPROVED"})
         if d["decision"] == "APPROVED":
-            approved += sorted(b_by_order.get(d["order_id"], []), key=lambda b: b["b_order_id"])[:1]
+            if d.get("b_order_id") in b_orders:
+                approved.append(b_orders[d["b_order_id"]])
+            else:                             # databases made before decisions recorded b_order_id
+                approved += sorted(b_by_order.get(d["order_id"], []), key=lambda b: b["b_order_id"])[:1]
     return report
 
 

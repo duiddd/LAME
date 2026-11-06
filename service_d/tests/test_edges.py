@@ -134,7 +134,57 @@ async def test_orders_queued_before_a_crash_are_decided_after_restart(make_engin
     e.faults.decision_delay_ms = 5000
     e.submit(req("O1", 7, BUY))
     await e.stop()                                   # stopped before the decision
+    await asyncio.sleep(0.2)                         # D is down past the order's deadline
     e2 = await ready_engine(make_engine, gate_deadline_ms=100)
     await wait_until(lambda: fake_a.of("O1"))
     assert fake_a.of("O1")[0]["reason"] == "RISK_TIMEOUT"   # too late now: never sent to B
     assert e2.query("O1", 7)[1]["state"] == "REJECTED_BY_D"
+
+
+# ---------------------------------------------------------------- catching up with resume_ok
+async def test_resume_ok_marks_caught_up_without_waiting(make_engine, fake_a):
+    e = await ready_engine(make_engine, catchup_quiet_ms=60_000)     # the quiet fallback would never fire
+    e.submit(req("O1", 7, BUY))
+    await wait_until(lambda: fake_a.of("O1", "ACCEPTED"))
+    assert e.b_client.through_seq == 0
+
+
+async def test_caught_up_only_at_through_seq(tmp_path):
+    c, applied = chain_client(tmp_path)
+    c.day, c.last_seq, c.from_seq = "d1", 2, 2
+    c._receive({"type": "resume_ok", "from_seq": 2, "through_seq": 5})
+    for r in [rec("d1", 3, 2), rec("d1", 4, 3)]:
+        c._receive(r)
+        c._drain()
+        c._check_caught_up()
+    assert not c.caught_up
+    c._receive(rec("d1", 5, 4))
+    c._drain()
+    c._check_caught_up()
+    assert c.caught_up and [r["seq"] for r in applied] == [3, 4, 5]
+
+
+async def test_old_b_without_resume_ok_falls_back_to_quiet(make_engine, fake_b):
+    fake_b.send_resume_ok = False
+    e = await ready_engine(make_engine)
+    assert e.b_client.through_seq is None and e.ready
+
+
+async def test_night_away_while_b_stays_on_the_old_day(make_engine, fake_a, fake_b):
+    """B moves to a new day only when a command of that day arrives, so D may be served yesterday."""
+    fake_b.new_day("2000-01-01")
+    e = await ready_engine(make_engine)
+    e.submit(req("S1", 7, SELL, qty=2))
+    await wait_until(lambda: fake_a.of("S1", "ACCEPTED"))
+    e.submit(req("B1", 8, BUY))
+    await wait_until(lambda: fake_a.of("S1", "ORDER_UPDATE"))
+    n = len(fake_a.applied)
+    await fake_b.kick()                       # reconnect: D's day is not today, so it asks from seq 0
+    await wait_until(lambda: e.b_client.connected and e.ready)
+    assert e.b_client.from_seq == 0
+    assert len(fake_a.applied) == n           # the resent day was deduplicated
+    assert [o.remaining for o in e.view.opposites("BTC-USDT", "SELL")] == [1]
+    fake_b.new_day("2000-01-02")              # the first command of the new day moves B on
+    e.submit(req("O3", 9, BUY, price=90))
+    await wait_until(lambda: fake_a.of("O3", "ACCEPTED"))
+    assert e.b_client.day == "2000-01-02"

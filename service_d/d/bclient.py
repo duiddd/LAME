@@ -3,9 +3,15 @@
 - First message is {"type":"resume","from_seq":N}; B resends today's outputs with
   seq > N while it also pushes new ones, so the two can interleave and repeat.
 - Outputs are applied strictly in their prev_seq chain order, each exactly once.
-- Caught up: the chain is contiguous and nothing new has arrived for
-  CATCHUP_QUIET_MS. B sends no "resend finished" marker and does not mark which
-  records are live, so this is the best D can do without B's help (open item).
+- B answers the handshake first with {"type":"resume_ok","from_seq":N,"through_seq":M}:
+  M is the last output stored when the handshake was served. D is caught up once
+  its chain is contiguous up to M in the day being resent; later records are live.
+- Fallback for a B without resume_ok: caught up when the chain is contiguous and
+  nothing new has arrived for CATCHUP_QUIET_MS.
+- B serves the resend from its current day, and B only moves to a new day when a
+  command of the new day arrives (all commands come from D). So after a night away
+  D may still be served the old day: D keeps its (day, seq) for deduplication and
+  asks from seq 0 whenever its own day is not today's date.
 """
 import asyncio
 import json
@@ -42,6 +48,9 @@ class BClient:
         self.pending = {}            # prev_seq -> record waiting for its predecessor
         self.pending_since = None
         self.last_arrival = 0
+        self.from_seq = 0            # what the current handshake asked for
+        self.through_seq = None      # from B's resume_ok; None until it arrives
+        self.resend_day = None       # day of the first output on this connection
         self._stop = False
 
     # -- public ---------------------------------------------------------
@@ -85,15 +94,17 @@ class BClient:
             self.on_state()
 
     async def _session(self, ws):
-        if self.day != today():          # nothing applied today: start from the first output
-            self.day, self.last_seq = None, 0
+        # Our day is not today: B may serve that day or a newer one, so ask for all of
+        # it. Records we already applied are dropped by (day, seq) in _receive.
+        self.from_seq = self.last_seq if self.day == today() else 0
+        self.through_seq, self.resend_day = None, None
         self.pending.clear()
         self.pending_since = None
-        await ws.send(json.dumps({"type": "resume", "from_seq": self.last_seq}))
+        await ws.send(json.dumps({"type": "resume", "from_seq": self.from_seq}))
         self.ws = ws
-        self.last_arrival = now_ms()
+        self.connected_at = self.last_arrival = now_ms()
         self._set(connected=True, caught_up=False)
-        log.info("connected to B, resume from_seq=%s", self.last_seq)
+        log.info("connected to B, resume from_seq=%s (last applied %s/%s)", self.from_seq, self.day, self.last_seq)
         tick = self.s.catchup_quiet_ms / 1000 / 3
         while True:
             try:
@@ -114,8 +125,14 @@ class BClient:
             if rec.get("code") == "resume_ahead_of_store":
                 self.day, self.last_seq = None, 0
             return
+        if rec.get("type") == "resume_ok":
+            self.through_seq = rec["through_seq"]
+            log.info("B will resend up to seq %s", self.through_seq)
+            return
         self.last_arrival = now_ms()
         day, seq = rec["day"], rec["seq"]
+        if self.resend_day is None:
+            self.resend_day = day
         if self.day is not None and day < self.day:
             return
         if self.day is not None and day > self.day:      # a new trading day started
@@ -138,6 +155,13 @@ class BClient:
         self.pending_since = now_ms() if self.pending else None
 
     def _check_caught_up(self):
-        quiet = now_ms() - self.last_arrival >= self.s.catchup_quiet_ms
-        if not self.caught_up and not self.pending and quiet and not self.faults.pause_b_apply:
+        if self.caught_up or self.pending or self.faults.pause_b_apply:
+            return
+        if self.through_seq is not None:
+            done = (self.through_seq <= self.from_seq                       # nothing to resend
+                    or (self.resend_day is not None and self.day is not None
+                        and (self.day, self.last_seq) >= (self.resend_day, self.through_seq)))
+        else:                                                               # B without resume_ok
+            done = now_ms() - self.last_arrival >= self.s.catchup_quiet_ms
+        if done:
             self._set(caught_up=True)
