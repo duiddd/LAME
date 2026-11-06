@@ -100,3 +100,52 @@ async fn new_commands_are_handled_while_a_resend_is_in_progress() {
     }
     svc.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn the_handshake_reply_says_where_the_catch_up_ends() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::at(IN_SESSION);
+
+    // A day with no outputs yet: nothing to catch up on.
+    let svc = start(config(dir.path()), &clock).await;
+    let d = Client::connect(svc.ctrl_addr, 0).await;
+    assert_eq!(d.through_seq, Some(0));
+    drop(d);
+    svc.shutdown().await.unwrap();
+
+    build_backlog(dir.path(), &clock).await;
+    let svc = restart_with_small_queue(dir.path(), &clock).await;
+
+    // From the start: `through_seq` is the last stored output, and the outputs
+    // up to it are exactly the backlog, however live ones interleave.
+    let mut d = Client::connect(svc.ctrl_addr, 0).await;
+    let through = d.through_seq.expect("resume_ok comes first");
+    assert!(through > 0);
+    // A new order after the handshake is live, beyond the catch-up.
+    d.send(limit(
+        "AAA",
+        BACKLOG + 1,
+        BACKLOG + 1,
+        "BUY",
+        10,
+        1,
+        IN_SESSION,
+    ))
+    .await;
+    let mut caught_up = 0;
+    let mut live = 0;
+    while caught_up < BACKLOG || live < 1 {
+        let r = d.recv().await.expect("connection stayed open");
+        if r["seq"].as_u64().unwrap() <= through {
+            caught_up += 1;
+        } else {
+            live += 1;
+        }
+    }
+    assert_eq!((caught_up, live), (BACKLOG, 1));
+
+    // Resuming from `through_seq` itself has nothing left to catch up on.
+    let d2 = Client::connect(svc.ctrl_addr, through).await;
+    assert!(d2.through_seq.unwrap() >= through);
+    svc.shutdown().await.unwrap();
+}

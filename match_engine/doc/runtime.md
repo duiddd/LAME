@@ -74,6 +74,15 @@ closes the old.
 (`expected_resume`) or if `N` is beyond the last record of the day
 (`resume_ahead_of_store`: B has lost data and a person must look).
 
+An accepted handshake is answered with
+`{"type":"resume_ok","from_seq":N,"through_seq":M}` as the **first message on
+the connection**, ahead of any record. `M` is the `seq` of the last output
+stored when the handshake was served (0 if there is none). D has caught up once
+it holds every output up to `M`; records with a greater `seq` are live. `M` is
+a fixed number, so it does not matter how resend and live records interleave,
+and a dropped connection simply starts over with a new handshake and a new `M`.
+If `N >= M` there is nothing to resend and D is caught up on receiving it.
+
 After the handshake B registers for live outputs first, and only then reads the
 store for the resend. So nothing is missed, but the two can **overlap**; D
 deduplicates by `(day, seq)` (`seq` restarts every day). Each of the two is in

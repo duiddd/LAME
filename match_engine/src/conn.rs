@@ -20,7 +20,7 @@ use tokio::time::{interval, timeout};
 use crate::runtime::{stopped, AppState, JournalMsg};
 use crate::store::{Kind, Reader};
 use crate::types::Command;
-use crate::wire::{error_json, parse_command, Inbound};
+use crate::wire::{error_json, parse_command, resume_ok_json, Inbound};
 
 /// B pings this often to notice half-open connections sooner. Correctness
 /// never depends on it: resume always starts from D's own `from_seq`.
@@ -102,6 +102,16 @@ async fn serve(socket: WebSocket, app: Arc<AppState>) {
     // committed after this point reaches the live queue, anything before it is
     // covered by the resend.
     let attached = app.hub.attach(live_tx.clone());
+    // Read after attaching: every output stored up to here is either in the
+    // resend (which reads everything after `from_seq`) or has been sent live.
+    let through_seq = match reader.last_output_seq() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(error = %e, "cannot read the event store for resend");
+            app.hub.detach(attached.generation);
+            return refuse(write, "internal", "event store unavailable").await;
+        }
+    };
     let resend = tokio::task::spawn_blocking(move || {
         reader.scan_outputs(from_seq, |rec| {
             resend_tx
@@ -113,6 +123,14 @@ async fn serve(socket: WebSocket, app: Arc<AppState>) {
     let mut shutdown = app.shutdown.subscribe();
     let writer = async {
         let mut write = write;
+        // First on the wire, ahead of any record: where the catch-up ends.
+        if write
+            .send(Message::Text(resume_ok_json(from_seq, through_seq)))
+            .await
+            .is_err()
+        {
+            return;
+        }
         let mut ping = interval(PING_EVERY);
         ping.tick().await;
         let mut resending = true;
