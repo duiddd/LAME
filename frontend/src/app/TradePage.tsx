@@ -68,7 +68,7 @@ export function TradePage() {
       <div className="grid gap-px bg-line lg:col-start-3 lg:row-start-2 lg:row-span-3 lg:min-h-0 lg:grid-rows-[auto_minmax(0,1.2fr)_minmax(0,1fr)]">
         <MarketList symbols={data.symbols} />
         <div className="h-[360px] lg:h-auto lg:min-h-0">
-          <ChatBox />
+          <ChatBox symbol={symbol} />
         </div>
         <div className="h-[280px] lg:h-auto lg:min-h-0">
           <NewsPanel symbol={symbol} />

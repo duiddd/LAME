@@ -39,4 +39,6 @@ export interface NewsItem {
   headline: string;
   body: string;
   source: string;
+  sanitized?: boolean;
+  index_version?: number;
 }
