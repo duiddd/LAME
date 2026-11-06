@@ -1,0 +1,12 @@
+# The frontend, on the network Service A's compose file creates. Moves into the root file at the final merge.
+services:
+  frontend:
+    build: .
+    ports:
+      - "3000:3000"
+    networks: [lame]
+
+networks:
+  lame:
+    external: true
+    name: lame
