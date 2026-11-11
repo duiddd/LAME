@@ -214,6 +214,33 @@ async def run_checks() -> None:
             chat_btc,
         )
 
+        # Natural free-form queries ("why did btc and eth move", "why did ETH-USDT move")
+        chat_both = (
+            await client.post(
+                "/api/chat",
+                json={"query": "why did btc and eth move", "symbol": "BTC-USDT"},
+            )
+        ).json()
+        check(
+            "POST /api/chat answers 'why did btc and eth move' with verified citations",
+            chat_both["status"] == "ANSWERED" and len(chat_both["citations"]) >= 1,
+            chat_both,
+        )
+
+        chat_eth_move = (
+            await client.post(
+                "/api/chat",
+                json={"query": "why did ETH-USDT move", "symbol": "BTC-USDT"},
+            )
+        ).json()
+        check(
+            "POST /api/chat answers 'why did ETH-USDT move' with ETH-USDT citations even if dropdown is BTC-USDT",
+            chat_eth_move["status"] == "ANSWERED"
+            and chat_eth_move["market_context"]["symbol"] == "ETH-USDT"
+            and len(chat_eth_move["citations"]) >= 1,
+            chat_eth_move,
+        )
+
         # 5. Explicit Insufficient Evidence Refusal
         chat_refuse = (
             await client.post(

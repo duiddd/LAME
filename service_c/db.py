@@ -29,22 +29,36 @@ class NewsDatabase:
             "a",
             "an",
             "and",
+            "any",
             "are",
             "as",
             "at",
             "be",
+            "been",
+            "both",
             "by",
+            "can",
+            "could",
             "did",
             "do",
             "does",
+            "doing",
             "for",
             "from",
+            "give",
+            "going",
+            "happen",
             "happened",
             "happening",
+            "has",
+            "have",
             "how",
             "in",
+            "into",
             "is",
             "it",
+            "its",
+            "just",
             "last",
             "me",
             "minutes",
@@ -54,16 +68,175 @@ class NewsDatabase:
             "or",
             "over",
             "please",
+            "recent",
+            "recently",
+            "right",
+            "show",
+            "so",
+            "some",
             "tell",
+            "than",
+            "that",
             "the",
+            "their",
+            "them",
+            "then",
+            "there",
+            "these",
+            "they",
+            "this",
             "to",
             "today",
+            "up",
+            "us",
             "was",
+            "we",
+            "were",
             "what",
             "when",
             "where",
+            "which",
+            "who",
             "why",
+            "will",
             "with",
+            "would",
+            "you",
+        }
+    )
+
+    GENERIC_MARKET_WORDS = frozenset(
+        {
+            "btc",
+            "eth",
+            "usdt",
+            "usd",
+            "bitcoin",
+            "ethereum",
+            "market",
+            "markets",
+            "price",
+            "prices",
+            "move",
+            "moved",
+            "moves",
+            "moving",
+            "movement",
+            "movements",
+            "drop",
+            "dropped",
+            "dropping",
+            "fall",
+            "fell",
+            "falling",
+            "rise",
+            "rose",
+            "rising",
+            "jump",
+            "jumped",
+            "jumping",
+            "surge",
+            "surged",
+            "surging",
+            "rally",
+            "rallied",
+            "rallying",
+            "dip",
+            "dipped",
+            "dipping",
+            "crash",
+            "crashed",
+            "crashing",
+            "pump",
+            "pumped",
+            "dump",
+            "dumped",
+            "change",
+            "changed",
+            "changing",
+            "changes",
+            "spike",
+            "spiked",
+            "spiking",
+            "swing",
+            "swings",
+            "volatile",
+            "volatility",
+            "news",
+            "update",
+            "updates",
+            "latest",
+            "summary",
+            "summarize",
+            "explain",
+            "explanation",
+            "reason",
+            "reasons",
+            "cause",
+            "caused",
+            "causes",
+            "catalyst",
+            "catalysts",
+            "driver",
+            "drivers",
+            "driving",
+            "driven",
+            "status",
+            "report",
+            "about",
+            "affect",
+            "affected",
+            "affecting",
+            "impact",
+            "impacted",
+            "pair",
+            "pairs",
+            "spot",
+            "crypto",
+            "token",
+            "tokens",
+            "coin",
+            "coins",
+            "trading",
+            "trade",
+            "trades",
+            "action",
+            "activity",
+            "trend",
+            "trends",
+            "trending",
+            "perform",
+            "performance",
+            "current",
+            "currently",
+            "high",
+            "higher",
+            "low",
+            "lower",
+            "down",
+        }
+    )
+
+    UNKNOWN_TICKERS = frozenset(
+        {
+            "SOL",
+            "DOGE",
+            "XRP",
+            "ADA",
+            "AVAX",
+            "DOT",
+            "AAPL",
+            "TSLA",
+            "NVDA",
+            "GOLD",
+            "BNB",
+            "LINK",
+            "MATIC",
+            "SHIB",
+            "PEPE",
+            "SUI",
+            "TON",
+            "LTC",
         }
     )
 
@@ -346,16 +519,31 @@ class NewsDatabase:
         means stronger match. We convert it to a positive relevance score `abs(bm25_raw)`
         plus a keyword overlap boost so scores are intuitive (`> 0.0`).
         """
+        # 1. Detect if the user explicitly asked about an unsupported ticker (e.g., "SOL", "DOGE", "XRP", "AAPL")
+        explicit_unknown_tickers = {
+            t.upper()
+            for t in re.findall(r"\b[A-Za-z]{3,5}\b", query)
+            if t.upper() in self.UNKNOWN_TICKERS
+        }
         tokens = self._extract_fts_tokens(query, symbol=symbol)
+        # Specific topical keywords excluding generic market/movement words
+        specific_topic_tokens = [
+            t for t in tokens if t not in self.GENERIC_MARKET_WORDS
+        ]
+
         with self._lock:
             conn = self._connect()
             try:
                 index_version = self._read_index_version_unlocked(conn)
-                if not tokens:
+                if explicit_unknown_tickers:
                     return [], index_version
 
-                # Use OR query across extracted content keywords so FTS5 ranks documents by BM25
-                fts_expr = " OR ".join(f'"{t}"*' for t in tokens[:10])
+                # If user asked a general question without specific tokens, include BTC/ETH so FTS5 ranks all relevant news
+                search_tokens = list(tokens)
+                if not any(t in search_tokens for t in ("btc", "eth")):
+                    search_tokens.extend(["btc", "eth"])
+
+                fts_expr = " OR ".join(f'"{t}"*' for t in search_tokens[:12])
                 rows = conn.execute(
                     """
                     SELECT
@@ -374,20 +562,12 @@ class NewsDatabase:
                     ORDER BY raw_bm25 ASC, n.timestamp_ms DESC
                     LIMIT ?
                     """,
-                    (fts_expr, max(top_k * 3, 10)),
+                    (fts_expr, max(top_k * 4, 12)),
                 ).fetchall()
             finally:
                 conn.close()
 
         target_sym = symbol.strip().upper() if symbol else None
-        # Detect if the user explicitly asked about an unknown ticker (e.g., "DOGE", "SOL", "XRP", "AAPL")
-        explicit_unknown_tickers = {
-            t.upper()
-            for t in re.findall(r"\b[A-Za-z]{3,5}\b", query)
-            if t.upper() in {"SOL", "DOGE", "XRP", "ADA", "AVAX", "DOT", "AAPL", "TSLA", "NVDA", "GOLD"}
-        }
-        if explicit_unknown_tickers:
-            return [], index_version
 
         results: list[dict] = []
         for r in rows:
@@ -396,16 +576,15 @@ class NewsDatabase:
                 if not any(target_sym in s or s.startswith(target_sym) for s in syms):
                     continue
 
-            # Require at least one non-ticker topic keyword match when query has non-ticker words,
-            # or a direct ticker match when asking generally about what is happening in BTC/ETH.
             doc_text = f"{r['headline']} {r['body']} {' '.join(syms)}".lower()
-            matched_tokens = [t for t in tokens if t in doc_text]
-            non_symbol_tokens = [
-                t for t in tokens if t not in {"btc", "eth", "usdt", "bitcoin", "ethereum", "market", "price"}
-            ]
-            if non_symbol_tokens and not any(t in doc_text for t in non_symbol_tokens):
-                # User asked a specific topical question (e.g. "CEO arrested" or "lunar eclipse")
-                # that does not appear anywhere in the article
+            matched_tokens = [t for t in tokens if t in doc_text or t[:4] in doc_text]
+
+            # If the user asked about a specific non-market topic (e.g. "lunar eclipse", "mars colony"),
+            # require at least one specific topic word (or 4-char stem) to appear in the article.
+            if specific_topic_tokens and not any(
+                (t in doc_text or (len(t) >= 4 and t[:4] in doc_text))
+                for t in specific_topic_tokens
+            ):
                 continue
 
             raw_score = abs(float(r["raw_bm25"]))

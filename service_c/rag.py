@@ -58,7 +58,16 @@ class RAGEngine:
 
     @staticmethod
     def infer_symbol(query: str, explicit_symbol: Optional[str] = None) -> str:
-        """Resolves trading pair symbol from explicit field or natural-language query."""
+        """Resolves trading pair symbol, prioritizing explicit mentions in the user's query text."""
+        q_lower = query.lower()
+        mentions_btc = bool(re.search(r"\b(btc|bitcoin)\b", q_lower))
+        mentions_eth = bool(re.search(r"\b(eth|ethereum|layer-2|rollup|blob)\b", q_lower))
+
+        if mentions_eth and not mentions_btc:
+            return "ETH-USDT"
+        if mentions_btc and not mentions_eth:
+            return "BTC-USDT"
+
         if explicit_symbol and explicit_symbol.strip():
             sym = explicit_symbol.strip().upper()
             if sym == "BTC":
@@ -67,10 +76,23 @@ class RAGEngine:
                 return "ETH-USDT"
             return sym
 
-        q_lower = query.lower()
-        if "eth" in q_lower or "ethereum" in q_lower or "layer-2" in q_lower or "rollup" in q_lower:
-            return "ETH-USDT"
         return "BTC-USDT"
+
+    @staticmethod
+    def _resolve_search_symbol_filter(query: str, explicit_symbol: Optional[str], resolved_symbol: str) -> Optional[str]:
+        """Determines whether FTS5 should filter to a single symbol or search across all pairs."""
+        q_lower = query.lower()
+        mentions_btc = bool(re.search(r"\b(btc|bitcoin)\b", q_lower))
+        mentions_eth = bool(re.search(r"\b(eth|ethereum|layer-2|rollup|blob)\b", q_lower))
+
+        # If user asked about both BTC and ETH (e.g. "why did btc and eth move"), search across all pairs
+        if mentions_btc and mentions_eth:
+            return None
+        if mentions_eth:
+            return "ETH-USDT"
+        if mentions_btc:
+            return "BTC-USDT"
+        return resolved_symbol if explicit_symbol else None
 
     def check_ollama_health(self) -> bool:
         """Probes Ollama `/api/tags` endpoint with short timeout."""
@@ -220,7 +242,7 @@ class RAGEngine:
             )
 
         # Step 2: SQLite FTS5 BM25 Retrieval (Decision D3)
-        symbol_filter = resolved_symbol if req.symbol else None
+        symbol_filter = self._resolve_search_symbol_filter(req.query, req.symbol, resolved_symbol)
         retrieved, index_version = self.db.search_bm25(
             query=req.query,
             symbol=symbol_filter,
