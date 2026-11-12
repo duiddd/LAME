@@ -29,6 +29,13 @@ function seedMarket(start: number): FakeMarket {
 export const markets: Record<string, FakeMarket> = {
   "BTC-USDT": seedMarket(6425000),
   "ETH-USDT": seedMarket(345000),
+  "SOL-USDT": seedMarket(17840),
+  "NVDA-USDT": seedMarket(13860),
+  "AAPL-USDT": seedMarket(22840),
+  "ASML-USDT": seedMarket(68250),
+  "TSM-USDT": seedMarket(19280),
+  "RELIANCE-USDT": seedMarket(134000),
+  "GOLD-USDT": seedMarket(274500),
 };
 
 export function day(): string {

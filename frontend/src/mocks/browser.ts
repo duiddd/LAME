@@ -1,15 +1,17 @@
 import { delay, getResponse, http, HttpResponse } from "msw";
+import { C_URL } from "../shared/config";
 import type { Balance, Order } from "../shared/types";
 import { balances, day, fills, listeners, markets, orders, push, pushed, session, user } from "./state";
 
 const fixed = (units: number, decimals: number) => (units / 10 ** decimals).toFixed(decimals);
 const INTERVALS: Record<string, number> = { "5s": 5000, "15s": 15000, "1m": 60000, "5m": 300000 };
-const DEC: Record<string, number> = { USDT: 5, BTC: 3, ETH: 3 };
+const DEC: Record<string, number> = { USDT: 5, BTC: 3, ETH: 3, SOL: 3, NVDA: 3, AAPL: 3, ASML: 3, TSM: 3, RELIANCE: 3, GOLD: 3 };
 
 function balance(asset: string): Balance {
   let b = balances.find((x) => x.asset === asset);
   if (!b) {
-    b = { asset, available: fixed(0, DEC[asset]), held: fixed(0, DEC[asset]), total: fixed(0, DEC[asset]) };
+    const d = DEC[asset] ?? 3;
+    b = { asset, available: fixed(0, d), held: fixed(0, d), total: fixed(0, d) };
     balances.push(b);
   }
   return b;
@@ -17,7 +19,7 @@ function balance(asset: string): Balance {
 
 function adjust(asset: string, available: number, held: number) {
   const b = balance(asset);
-  const d = DEC[asset];
+  const d = DEC[asset] ?? 3;
   b.available = (Number(b.available) + available).toFixed(d);
   b.held = (Number(b.held) + held).toFixed(d);
   b.total = (Number(b.available) + Number(b.held)).toFixed(d);
@@ -116,6 +118,21 @@ const handlers = [
     };
     orders.unshift(order);
     run(order);
+    try {
+      fetch(`${C_URL}/api/activity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: body.symbol,
+          action: body.side,
+          qty: Number(body.qty),
+          price: Number(body.price ?? lastPrice),
+          source: "service_a",
+        }),
+      }).catch(() => {});
+    } catch {
+      /* Service C is off the trading path; never block order placement */
+    }
     await delay(60);
     return HttpResponse.json(order, { status: 202 });
   }),

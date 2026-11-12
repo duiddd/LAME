@@ -26,7 +26,7 @@ export function useNews(symbol: string) {
     refetchInterval: NEWS_REFRESH_MS,
     retry: false,
     queryFn: async (): Promise<NewsItem[]> => {
-      const res = await fetch(`${C_URL}/api/news?symbol=${encodeURIComponent(symbol)}&limit=20`, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(`${C_URL}/api/news?symbol=${encodeURIComponent(symbol)}&include_global=true&limit=20`, { signal: AbortSignal.timeout(5000) });
       if (!res.ok) {
         throw new Error(`News request failed with status ${res.status}`);
       }
