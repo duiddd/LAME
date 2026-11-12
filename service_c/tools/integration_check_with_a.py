@@ -14,10 +14,10 @@ Scenarios verified:
    iframe embeddability (no blocking `X-Frame-Options`).
 5. Grounded RAG `POST /api/chat` with verified `[news_id]` citations, normalized price context,
    explicit `INSUFFICIENT_EVIDENCE` refusal, and `REJECTED_UNSAFE` prompt-injection guardrail.
-6. Dead-Letter Queue (`GET /api/dlq`) isolation of poison news payloads and Prometheus `/metrics`.
-7. Failure Isolation (Stage M1 acceptance criterion): stopping Service C causes `useServiceCReachable`
-   to report `reachable=False` ("AI analyst offline. Trading is not affected.") while Service A's
-   trading flow proceeds unaffected.
+6. Cross-Service Trade & Search Activity (`POST /api/activity` & `GET /api/activity`) plus Top-10
+   Global Exchange Stocks (US, Europe, Asia-Pacific, India) and Commodities (Gold, Oil, Silver)
+   news retrieval and grounded RAG Q&A.
+7. Dead-Letter Queue (`GET /api/dlq`) isolation of poison news payloads and Prometheus `/metrics`.
 """
 
 import asyncio
@@ -28,6 +28,7 @@ import httpx
 
 from service_c.db import NewsDatabase
 from service_c.ingestion import NewsIngestionPipeline
+from service_c.live_news import ActivityAndNewsManager
 import service_c.main as main_mod
 from service_c.main import app
 from service_c.market_data import MarketDataCache
@@ -83,11 +84,13 @@ async def run_checks() -> None:
     test_pipeline = NewsIngestionPipeline(test_db)
     test_market = MarketDataCache()
     test_rag = RAGEngine(test_db, test_market)
+    test_activity = ActivityAndNewsManager(test_db)
 
     main_mod.db = test_db
     main_mod.ingestion_pipeline = test_pipeline
     main_mod.market_cache = test_market
     main_mod.rag_engine = test_rag
+    main_mod.activity_manager = test_activity
 
     await test_pipeline.replay_script_file()
 
@@ -241,7 +244,58 @@ async def run_checks() -> None:
             chat_eth_move,
         )
 
-        # 5. Explicit Insufficient Evidence Refusal
+        # 5. Cross-service Buy/Sell/Search Activity & Top-10 Global Exchange Stocks / Commodities
+        act_nvda = (
+            await client.post(
+                "/api/activity",
+                json={
+                    "symbol": "NVDA",
+                    "action": "BUY",
+                    "qty": 50,
+                    "price": 138.60,
+                    "source": "service_a",
+                },
+            )
+        ).json()
+        check(
+            "POST /api/activity records Service A BUY order for NVDA and pulls news",
+            act_nvda["status"] == "ok"
+            and act_nvda["symbol"] == "NVDA"
+            and len(act_nvda["news_preview"]) >= 1,
+            act_nvda,
+        )
+
+        act_list = (await client.get("/api/activity")).json()
+        check(
+            "GET /api/activity lists active traded/searched instruments and global catalog size >= 50",
+            any(item["symbol"] == "NVDA" for item in act_list["active_symbols"])
+            and act_list["global_catalog_size"] >= 50,
+            act_list,
+        )
+
+        # Query US Top-10 Stock (NVDA / AAPL), Europe Top-10 (ASML), Asia Top-10 (TSM), India Top-10 (RELIANCE), Commodity (GOLD)
+        for label, query_text, expected_sym in [
+            ("US Top-10 (NVDA)", "Why are NVDA and AAPL moving on NASDAQ today?", "NVDA"),
+            ("Europe Top-10 (ASML)", "What is driving ASML and SAP on European exchanges?", "ASML"),
+            ("Asia-Pacific Top-10 (TSMC)", "Why did TSMC and Tencent move on Asian exchanges?", "TSM"),
+            ("India Top-10 (Reliance)", "What is driving Reliance and TCS on NSE India?", "RELIANCE"),
+            ("Global Commodity (Gold)", "Why are Gold and WTI Crude Oil moving today?", "GOLD"),
+        ]:
+            resp_global = (
+                await client.post(
+                    "/api/chat",
+                    json={"query": query_text, "symbol": expected_sym},
+                )
+            ).json()
+            check(
+                f"POST /api/chat answers {label} with verified citations and market snapshot",
+                resp_global["status"] == "ANSWERED"
+                and len(resp_global["citations"]) >= 1
+                and resp_global["market_context"]["symbol"] == expected_sym,
+                resp_global,
+            )
+
+        # 6. Explicit Insufficient Evidence Refusal
         chat_refuse = (
             await client.post(
                 "/api/chat",
@@ -254,7 +308,7 @@ async def run_checks() -> None:
             chat_refuse,
         )
 
-        # 6. Prompt Injection & Investment Advice Guardrails
+        # 7. Prompt Injection & Investment Advice Guardrails
         chat_inj = (
             await client.post(
                 "/api/chat",
@@ -270,7 +324,7 @@ async def run_checks() -> None:
             chat_inj,
         )
 
-        # 7. Prometheus Metrics check
+        # 8. Prometheus Metrics check
         m_text = (await client.get("/metrics")).text
         check(
             "GET /metrics exposes model latency, token use, refusal rate, and DLQ count",

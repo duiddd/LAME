@@ -2,9 +2,12 @@
 
 Exposes:
 - POST /api/chat (and alias POST /ask) : Grounded RAG market explanation Q&A
-- GET  /api/news                       : Recent indexed news feed
+- GET  /api/news                       : Recent indexed news feed (auto-pulls for requested symbol)
+- POST /api/activity                   : Record stock/crypto/commodity bought, sold, or searched on A/B/D
+- GET  /api/activity                   : Active traded/searched symbols & global exchange catalog
+- POST /api/news/seed-global           : Seed Top-10 global exchange stocks, crypto & commodities news
 - GET  /api/dlq                        : Dead-Letter Queue (news.dlq) inspector
-- GET  /api/market                     : Latest cached Service B market snapshots
+- GET  /api/market                     : Latest cached Service B & global exchange market snapshots
 - POST /api/market/snapshot            : Push/update market snapshot (for testing)
 - POST /api/replay                     : Trigger scripted news replay (news_script.jsonl)
 - POST /api/news/inject                : Publish raw news payload (valid or poison) to pipeline
@@ -25,19 +28,23 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .catalog import GLOBAL_INSTRUMENTS
 from .config import settings
 from .db import NewsDatabase
 from .ingestion import NewsIngestionPipeline
+from .live_news import ActivityAndNewsManager
 from .market_data import market_cache
 from .metrics import metrics
 from .models import ChatRequest, ChatResponse, DLQItemOut, NewsItemOut
 from .rag import RAGEngine
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 db = NewsDatabase(settings.db_path)
 ingestion_pipeline = NewsIngestionPipeline(db)
 rag_engine = RAGEngine(db, market_cache)
+activity_manager = ActivityAndNewsManager(db)
 
 
 class RawInjectRequest(BaseModel):
@@ -46,12 +53,24 @@ class RawInjectRequest(BaseModel):
     raw_payload: str = Field(..., description="Raw JSONL line to publish to the news ingestion pipeline")
 
 
+class SymbolActivityRequest(BaseModel):
+    """Payload notified when a user or peer service (A/B/D) buys, sells, views, or searches a symbol."""
+
+    symbol: str = Field(..., description="Ticker or pair bought, sold, or searched (e.g. NVDA, AAPL, BTC-USDT, GOLD)")
+    action: str = Field(default="TRADED", description="Action type: BUY, SELL, SEARCHED, VIEWED, LISTED")
+    source: str = Field(default="service_a", description="Originating service (service_a, service_b, service_d, frontend)")
+    qty: Optional[str | float | int] = Field(default=None, description="Optional order/fill quantity")
+    price: Optional[str | float | int] = Field(default=None, description="Optional order/fill price")
+    force_live_rss: bool = Field(default=False, description="Force live RSS news pull for this symbol")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initializes RabbitMQ topology, replays scripted news, and starts Service B WS consumer."""
+    """Initializes RabbitMQ topology, replays scripted news, discovers peer symbols, and starts WS consumer."""
     await ingestion_pipeline.init_broker()
     if settings.auto_replay_on_startup:
         await ingestion_pipeline.replay_script_file()
+    activity_manager.discover_local_service_configs(REPO_ROOT)
     await market_cache.start_background_consumers()
     rag_engine.check_ollama_health()
     yield
@@ -62,11 +81,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="LAME Service C — News & AI Market Analyst",
     description=(
-        "Off-path RAG market explanation service with scripted news replay, SQLite FTS5 BM25 "
-        "indexing, verifiable citations, freshness labels, prompt-injection guardrails, and "
-        "Prometheus AI observability."
+        "Off-path RAG market explanation service with scripted news replay, global multi-exchange "
+        "stock/crypto/commodity news ingestion, SQLite FTS5 BM25 indexing, verifiable citations, "
+        "freshness labels, prompt-injection guardrails, and Prometheus AI observability."
     ),
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -116,7 +135,10 @@ async def serve_widget_page():
 @app.post("/api/chat", response_model=ChatResponse)
 @app.post("/ask", response_model=ChatResponse)
 async def chat_endpoint(payload: ChatRequest, response: Response):
-    """Answers a user's market question using grounded FTS5 retrieval + Service B snapshot."""
+    """Answers a user's market question using grounded FTS5 retrieval + live market snapshot."""
+    # Ensure any stock, crypto, or commodity mentioned in the query or symbol field has its news pulled
+    activity_manager.db = db
+    activity_manager.record_query_activity(payload.query, payload.symbol, source="chat")
     result = rag_engine.answer_question(payload)
     if result.status == "SERVICE_UNAVAILABLE":
         response.status_code = 503
@@ -125,11 +147,87 @@ async def chat_endpoint(payload: ChatRequest, response: Response):
 
 @app.get("/api/news", response_model=list[NewsItemOut])
 async def get_news(
-    symbol: Optional[str] = Query(default=None, description="Optional symbol filter, e.g. BTC-USDT"),
-    limit: int = Query(default=15, ge=1, le=100),
+    symbol: Optional[str] = Query(default=None, description="Optional symbol filter, e.g. BTC-USDT, NVDA, AAPL, GOLD"),
+    limit: int = Query(default=20, ge=1, le=100),
+    include_global: bool = Query(default=False, description="Seed global multi-exchange top-10 stocks & commodities news"),
 ):
     """Returns recent verified news items from the SQLite FTS5 knowledge base."""
+    activity_manager.db = db
+    if include_global:
+        activity_manager.seed_global_exchange_news()
+    if symbol and symbol.strip():
+        activity_manager.record_symbol_activity(symbol, action="viewed", source="news_feed")
+        activity_manager.ensure_symbol_news(symbol)
     return db.list_recent_news(symbol=symbol, limit=limit)
+
+
+@app.post("/api/activity")
+async def record_activity(req: SymbolActivityRequest):
+    """Notifies Service C that a stock, crypto, script, or commodity was bought, sold, or searched on A/B/D."""
+    activity_manager.db = db
+    canonical = activity_manager.record_symbol_activity(
+        req.symbol,
+        action=req.action,
+        source=req.source,
+        qty=req.qty,
+        price=req.price,
+    )
+    if req.price is not None:
+        try:
+            p_int = round(float(req.price))
+            market_cache.update_snapshot(
+                {"symbol": canonical, "last_price": p_int, "timestamp_ms": int(__import__("time").time() * 1000)},
+                source="service_b_ws",
+            )
+        except Exception:
+            pass
+    news_count = activity_manager.ensure_symbol_news(canonical, force_live_rss=req.force_live_rss)
+    preview = [item.model_dump() for item in db.list_recent_news(symbol=canonical, limit=5)]
+    return {
+        "status": "ok",
+        "symbol": canonical,
+        "news_available": news_count,
+        "news_preview": preview,
+        "index_version": db.get_index_version(),
+        "active_symbols": activity_manager.get_active_symbols(limit=15),
+    }
+
+
+@app.get("/api/activity")
+async def get_activity(limit: int = Query(default=30, ge=1, le=100)):
+    """Returns actively bought/sold/searched symbols across services and the global multi-exchange catalog."""
+    activity_manager.db = db
+    by_exchange: dict[str, list[dict]] = {}
+    for sym, meta in GLOBAL_INSTRUMENTS.items():
+        exch = meta["exchange"]
+        by_exchange.setdefault(exch, []).append(
+            {
+                "symbol": sym,
+                "name": meta["name"],
+                "exchange": exch,
+                "asset_class": meta["asset_class"],
+                "price": meta["price"],
+            }
+        )
+    return {
+        "active_symbols": activity_manager.get_active_symbols(limit=limit),
+        "exchanges": by_exchange,
+        "total_catalog_instruments": len(GLOBAL_INSTRUMENTS),
+        "global_catalog_size": len(GLOBAL_INSTRUMENTS),
+        "index_version": db.get_index_version(),
+    }
+
+
+@app.post("/api/news/seed-global")
+async def seed_global_news():
+    """Seeds the full Top-10 stocks per major global exchange, crypto, and commodities news corpus."""
+    activity_manager.db = db
+    inserted = activity_manager.seed_global_exchange_news()
+    return {
+        "inserted_new": inserted,
+        "index_version": db.get_index_version(),
+        "total_instruments": len(GLOBAL_INSTRUMENTS),
+    }
 
 
 @app.get("/api/dlq", response_model=list[DLQItemOut])
@@ -140,20 +238,31 @@ async def get_dlq(limit: int = Query(default=50, ge=1, le=200)):
 
 @app.get("/api/market")
 async def get_market_snapshots():
-    """Returns latest cached Service B market snapshots (top-3 bids/asks + last_price)."""
+    """Returns latest cached Service B & global exchange market snapshots."""
     return {
         "symbols": market_cache.get_all_snapshots(),
         "stale_threshold_seconds": settings.market_stale_threshold_seconds,
     }
 
 
+@app.get("/api/market/snapshot")
+async def get_single_market_snapshot(symbol: str = Query(default="BTC-USDT")):
+    """Returns the top-3 order book and last price snapshot for any crypto, stock, or commodity."""
+    activity_manager.db = db
+    canonical = activity_manager.record_symbol_activity(symbol, action="viewed", source="terminal_ob")
+    return market_cache.get_market_context(canonical).model_dump()
+
+
 @app.post("/api/market/snapshot")
 async def push_market_snapshot(payload: dict):
-    """Allows pushing a market snapshot (e.g., during integration testing without Service B)."""
+    """Allows pushing a market snapshot (e.g., during integration testing or from Service B/A)."""
+    sym = payload.get("symbol", "BTC-USDT")
+    activity_manager.db = db
+    activity_manager.record_symbol_activity(sym, action="market_tick", source=payload.get("source", "service_b_ws"))
     accepted = market_cache.update_snapshot(payload, source=payload.get("source", "service_b_ws"))
     return {
         "accepted": accepted,
-        "snapshot": market_cache.get_market_context(payload.get("symbol", "BTC-USDT")).model_dump(),
+        "snapshot": market_cache.get_market_context(sym).model_dump(),
     }
 
 
@@ -205,6 +314,7 @@ async def healthcheck():
             "deterministic_fallback_enabled": settings.allow_deterministic_fallback,
         },
         "market_data": market_cache.get_all_snapshots(),
+        "active_symbols_count": len(activity_manager.get_active_symbols()),
     }
 
 

@@ -16,6 +16,8 @@
   const chatInput = document.getElementById("chat-input");
   const chatSymbol = document.getElementById("chat-symbol");
   const chatSubmit = document.getElementById("chat-submit");
+  const activeSymbolsBar = document.getElementById("active-symbols-bar");
+  const obSymbolLabel = document.getElementById("ob-symbol-label");
 
   function esc(s) {
     return String(s || "")
@@ -29,9 +31,42 @@
     await Promise.all([
       loadMarket(),
       loadNews(),
+      loadActivity(),
       loadDLQ(),
       loadMetrics(),
     ]);
+  }
+
+  function renderOrderBookSnapshot(snap) {
+    if (!snap) return;
+    const asksEl = document.getElementById("ob-asks");
+    const bidsEl = document.getElementById("ob-bids");
+    const midEl = document.getElementById("ob-mid");
+    if (obSymbolLabel && snap.symbol) {
+      obSymbolLabel.textContent = `${snap.symbol} · SQLite FTS5`;
+    }
+    if (asksEl && bidsEl && midEl) {
+      midEl.textContent = `${Number(snap.last_price).toLocaleString()} (${snap.symbol || "BTC-USDT"})`;
+      const asks = (snap.asks || []).slice(0, 3).reverse();
+      const bids = (snap.bids || []).slice(0, 3);
+      const maxQty = Math.max(
+        1,
+        ...asks.map((a) => a.qty || 1),
+        ...bids.map((b) => b.qty || 1)
+      );
+      asksEl.innerHTML = asks
+        .map((a) => {
+          const pct = Math.min(100, Math.round((a.qty / maxQty) * 100));
+          return `<div class="b-ob-row ask"><div class="b-ob-bar" style="width:${pct}%"></div><span class="price">${Number(a.price).toLocaleString()}</span><span>${a.qty}</span></div>`;
+        })
+        .join("");
+      bidsEl.innerHTML = bids
+        .map((b) => {
+          const pct = Math.min(100, Math.round((b.qty / maxQty) * 100));
+          return `<div class="b-ob-row bid"><div class="b-ob-bar" style="width:${pct}%"></div><span class="price">${Number(b.price).toLocaleString()}</span><span>${b.qty}</span></div>`;
+        })
+        .join("");
+    }
   }
 
   async function loadMarket() {
@@ -46,32 +81,8 @@
         document.getElementById("btc-price").textContent = Number(btc.last_price).toLocaleString();
         document.getElementById("btc-fresh").textContent = `${btc.data_freshness_seconds}s`;
         document.getElementById("btc-bbo").textContent = `Bid ${Number(btc.best_bid).toLocaleString()} · Ask ${Number(btc.best_ask).toLocaleString()}`;
-
-        // Update Top-3 Order Book visualizer
-        const asksEl = document.getElementById("ob-asks");
-        const bidsEl = document.getElementById("ob-bids");
-        const midEl = document.getElementById("ob-mid");
-        if (asksEl && bidsEl && midEl) {
-          midEl.textContent = `${Number(btc.last_price).toLocaleString()} USDT`;
-          const asks = (btc.asks || []).slice(0, 3).reverse();
-          const bids = (btc.bids || []).slice(0, 3);
-          const maxQty = Math.max(
-            1,
-            ...asks.map((a) => a.qty || 1),
-            ...bids.map((b) => b.qty || 1)
-          );
-          asksEl.innerHTML = asks
-            .map((a) => {
-              const pct = Math.min(100, Math.round((a.qty / maxQty) * 100));
-              return `<div class="b-ob-row ask"><div class="b-ob-bar" style="width:${pct}%"></div><span class="price">${Number(a.price).toLocaleString()}</span><span>${a.qty}</span></div>`;
-            })
-            .join("");
-          bidsEl.innerHTML = bids
-            .map((b) => {
-              const pct = Math.min(100, Math.round((b.qty / maxQty) * 100));
-              return `<div class="b-ob-row bid"><div class="b-ob-bar" style="width:${pct}%"></div><span class="price">${Number(b.price).toLocaleString()}</span><span>${b.qty}</span></div>`;
-            })
-            .join("");
+        if (!chatSymbol.value || chatSymbol.value === "BTC-USDT") {
+          renderOrderBookSnapshot(btc);
         }
       }
       if (eth) {
@@ -82,9 +93,22 @@
     } catch (_) {}
   }
 
-  async function loadNews() {
+  async function loadSymbolSnapshot(symbol) {
+    if (!symbol) return;
     try {
-      const res = await fetch(`${API_BASE}/api/news?limit=20`);
+      const res = await fetch(`${API_BASE}/api/market/snapshot?symbol=${encodeURIComponent(symbol)}`);
+      if (!res.ok) return;
+      const snap = await res.json();
+      renderOrderBookSnapshot(snap);
+    } catch (_) {}
+  }
+
+  async function loadNews(symbolFilter) {
+    try {
+      const symParam = symbolFilter
+        ? `&symbol=${encodeURIComponent(symbolFilter)}`
+        : "";
+      const res = await fetch(`${API_BASE}/api/news?limit=40&include_global=true${symParam}`);
       if (!res.ok) return;
       const items = await res.json();
       newsListEl.innerHTML = items
@@ -109,6 +133,30 @@
         .join("");
     } catch (_) {}
   }
+
+  async function loadActivity() {
+    if (!activeSymbolsBar) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/activity?limit=12`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const active = data.active_symbols || [];
+      if (active.length > 0) {
+        activeSymbolsBar.innerHTML = active
+          .map(
+            (a) =>
+              `<span style="cursor:pointer;color:#F0B90B;margin-right:8px;" onclick="selectActiveSymbol('${esc(a.symbol)}')" title="${esc(a.name)} (${esc(a.exchange)}) · last action: ${esc(a.last_action)} from ${esc(a.last_source)}">${esc(a.symbol)}<span style="color:#848E9C;font-size:9.5px;">(${esc(a.last_action)})</span></span>`
+          )
+          .join("");
+      }
+    } catch (_) {}
+  }
+
+  window.selectActiveSymbol = async function (symbol) {
+    if (!symbol) return;
+    chatSymbol.value = symbol;
+    await Promise.all([loadSymbolSnapshot(symbol), loadNews(symbol)]);
+  };
 
   async function loadDLQ() {
     try {
@@ -188,8 +236,11 @@
           : "";
 
       const mkt = data.market_context;
+      if (mkt) {
+        renderOrderBookSnapshot(mkt);
+      }
       const mktText = mkt
-        ? `${esc(mkt.symbol)}: ${Number(mkt.last_price).toLocaleString()} USDT (freshness: ${mkt.data_freshness_seconds}s)`
+        ? `${esc(mkt.symbol)}: ${Number(mkt.last_price).toLocaleString()} (freshness: ${mkt.data_freshness_seconds}s)`
         : "";
       const tel = data.telemetry || {};
 
@@ -208,10 +259,11 @@
       chatStreamEl.appendChild(botBubble);
       chatStreamEl.scrollTop = chatStreamEl.scrollHeight;
 
+      await Promise.all([loadNews(), loadActivity(), loadMetrics()]);
+
       if (data.citations && data.citations.length > 0) {
         window.highlightNewsCard(data.citations[0].news_id);
       }
-      await loadMetrics();
     } catch (err) {
       const errBubble = document.createElement("div");
       errBubble.className = "b-msg bot";
@@ -221,6 +273,15 @@
       chatSubmit.disabled = false;
     }
   }
+
+  chatSymbol.addEventListener("change", async () => {
+    const sym = chatSymbol.value;
+    if (sym) {
+      await Promise.all([loadSymbolSnapshot(sym), loadNews(sym)]);
+    } else {
+      await loadNews();
+    }
+  });
 
   chatForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -236,6 +297,15 @@
       sendChat(chip.dataset.q, chip.dataset.sym);
     });
   });
+
+  const btnSeedGlobal = document.getElementById("btn-seed-global");
+  if (btnSeedGlobal) {
+    btnSeedGlobal.addEventListener("click", async () => {
+      await fetch(`${API_BASE}/api/news/seed-global`, { method: "POST" });
+      chatSymbol.value = "";
+      await refreshAll();
+    });
+  }
 
   document.getElementById("btn-replay").addEventListener("click", async () => {
     await fetch(`${API_BASE}/api/replay`, { method: "POST" });

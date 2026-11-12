@@ -16,9 +16,165 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from .catalog import GLOBAL_INSTRUMENTS, normalize_instrument_symbol
 from .metrics import metrics
 from .models import DLQItemOut, NewsItemIn, NewsItemOut
 from .security import sanitize_news_text
+
+
+def _build_generic_market_words() -> frozenset[str]:
+    base_words = {
+        "btc",
+        "eth",
+        "usdt",
+        "usd",
+        "bitcoin",
+        "ethereum",
+        "market",
+        "markets",
+        "price",
+        "prices",
+        "move",
+        "moved",
+        "moves",
+        "moving",
+        "movement",
+        "movements",
+        "drop",
+        "dropped",
+        "dropping",
+        "fall",
+        "fell",
+        "falling",
+        "rise",
+        "rose",
+        "rising",
+        "jump",
+        "jumped",
+        "jumping",
+        "surge",
+        "surged",
+        "surging",
+        "rally",
+        "rallied",
+        "rallying",
+        "dip",
+        "dipped",
+        "dipping",
+        "crash",
+        "crashed",
+        "crashing",
+        "pump",
+        "pumped",
+        "dump",
+        "dumped",
+        "change",
+        "changed",
+        "changing",
+        "changes",
+        "spike",
+        "spiked",
+        "spiking",
+        "swing",
+        "swings",
+        "volatile",
+        "volatility",
+        "news",
+        "update",
+        "updates",
+        "latest",
+        "summary",
+        "summarize",
+        "explain",
+        "explanation",
+        "reason",
+        "reasons",
+        "cause",
+        "caused",
+        "causes",
+        "catalyst",
+        "catalysts",
+        "driver",
+        "drivers",
+        "driving",
+        "driven",
+        "status",
+        "report",
+        "about",
+        "affect",
+        "affected",
+        "affecting",
+        "impact",
+        "impacted",
+        "pair",
+        "pairs",
+        "spot",
+        "crypto",
+        "token",
+        "tokens",
+        "coin",
+        "coins",
+        "stock",
+        "stocks",
+        "share",
+        "shares",
+        "equity",
+        "equities",
+        "script",
+        "scripts",
+        "scrip",
+        "commodity",
+        "commodities",
+        "exchange",
+        "exchanges",
+        "global",
+        "top",
+        "traded",
+        "bought",
+        "sold",
+        "buy",
+        "sell",
+        "trading",
+        "trade",
+        "trades",
+        "action",
+        "activity",
+        "trend",
+        "trends",
+        "trending",
+        "perform",
+        "performing",
+        "performance",
+        "current",
+        "currently",
+        "high",
+        "higher",
+        "low",
+        "lower",
+        "down",
+        "nasdaq",
+        "nyse",
+        "lse",
+        "euronext",
+        "xetra",
+        "tse",
+        "hkex",
+        "twse",
+        "krx",
+        "nse",
+        "bse",
+        "comex",
+        "nymex",
+    }
+    for sym, meta in GLOBAL_INSTRUMENTS.items():
+        for tok in re.findall(r"[A-Za-z0-9]+", sym.lower()):
+            base_words.add(tok)
+        for tok in re.findall(r"[A-Za-z0-9]+", meta["name"].lower()):
+            base_words.add(tok)
+        for alias in meta["aliases"]:
+            for tok in re.findall(r"[A-Za-z0-9]+", alias.lower()):
+                base_words.add(tok)
+    return frozenset(base_words)
 
 
 class NewsDatabase:
@@ -105,138 +261,13 @@ class NewsDatabase:
         }
     )
 
-    GENERIC_MARKET_WORDS = frozenset(
-        {
-            "btc",
-            "eth",
-            "usdt",
-            "usd",
-            "bitcoin",
-            "ethereum",
-            "market",
-            "markets",
-            "price",
-            "prices",
-            "move",
-            "moved",
-            "moves",
-            "moving",
-            "movement",
-            "movements",
-            "drop",
-            "dropped",
-            "dropping",
-            "fall",
-            "fell",
-            "falling",
-            "rise",
-            "rose",
-            "rising",
-            "jump",
-            "jumped",
-            "jumping",
-            "surge",
-            "surged",
-            "surging",
-            "rally",
-            "rallied",
-            "rallying",
-            "dip",
-            "dipped",
-            "dipping",
-            "crash",
-            "crashed",
-            "crashing",
-            "pump",
-            "pumped",
-            "dump",
-            "dumped",
-            "change",
-            "changed",
-            "changing",
-            "changes",
-            "spike",
-            "spiked",
-            "spiking",
-            "swing",
-            "swings",
-            "volatile",
-            "volatility",
-            "news",
-            "update",
-            "updates",
-            "latest",
-            "summary",
-            "summarize",
-            "explain",
-            "explanation",
-            "reason",
-            "reasons",
-            "cause",
-            "caused",
-            "causes",
-            "catalyst",
-            "catalysts",
-            "driver",
-            "drivers",
-            "driving",
-            "driven",
-            "status",
-            "report",
-            "about",
-            "affect",
-            "affected",
-            "affecting",
-            "impact",
-            "impacted",
-            "pair",
-            "pairs",
-            "spot",
-            "crypto",
-            "token",
-            "tokens",
-            "coin",
-            "coins",
-            "trading",
-            "trade",
-            "trades",
-            "action",
-            "activity",
-            "trend",
-            "trends",
-            "trending",
-            "perform",
-            "performance",
-            "current",
-            "currently",
-            "high",
-            "higher",
-            "low",
-            "lower",
-            "down",
-        }
-    )
+    GENERIC_MARKET_WORDS = _build_generic_market_words()
 
     UNKNOWN_TICKERS = frozenset(
         {
-            "SOL",
-            "DOGE",
-            "XRP",
-            "ADA",
-            "AVAX",
-            "DOT",
-            "AAPL",
-            "TSLA",
-            "NVDA",
-            "GOLD",
-            "BNB",
-            "LINK",
-            "MATIC",
-            "SHIB",
-            "PEPE",
-            "SUI",
-            "TON",
-            "LTC",
+            "FAKECOIN",
+            "MARSCOIN",
+            "ZZZZ",
         }
     )
 
@@ -340,11 +371,16 @@ class NewsDatabase:
 
         normalized_symbols = [s.strip().upper() for s in item.symbols if s.strip()]
         symbols_json = json.dumps(normalized_symbols)
-        # Include both full pair ("BTC-USDT") and base token ("BTC") for FTS5 matching
+        # Include full pair, base token, company/asset name, and aliases for rich FTS5 matching
         expanded_tokens: list[str] = []
         for sym in normalized_symbols:
             expanded_tokens.append(sym)
-            expanded_tokens.extend(sym.split("-"))
+            expanded_tokens.extend(re.findall(r"[A-Za-z0-9]+", sym))
+            meta = GLOBAL_INSTRUMENTS.get(sym)
+            if meta:
+                expanded_tokens.append(meta["name"])
+                expanded_tokens.append(meta["exchange"])
+                expanded_tokens.extend(meta["aliases"])
         symbols_text = " ".join(expanded_tokens)
 
         with self._lock:
@@ -401,7 +437,6 @@ class NewsDatabase:
         with self._lock:
             conn = self._connect()
             try:
-                # Deduplicate identical raw_payload in DLQ across repeated script replays
                 existing = conn.execute(
                     "SELECT dlq_id FROM dlq_items WHERE raw_payload = ?",
                     (raw_payload,),
@@ -438,17 +473,17 @@ class NewsDatabase:
                     ORDER BY timestamp_ms DESC, news_id DESC
                     LIMIT ?
                     """,
-                    (max(1, min(limit * 3, 200)),),
+                    (max(1, min(limit * 4, 300)),),
                 ).fetchall()
             finally:
                 conn.close()
 
         results: list[NewsItemOut] = []
-        target_sym = symbol.strip().upper() if symbol else None
+        target_sym = (normalize_instrument_symbol(symbol) or symbol.strip().upper()) if symbol else None
         for r in rows:
             syms: list[str] = json.loads(r["symbols_json"])
             if target_sym:
-                if not any(target_sym in s or s.startswith(target_sym) for s in syms):
+                if not any(target_sym == s or target_sym in s or s.startswith(target_sym) for s in syms):
                     continue
             results.append(
                 NewsItemOut(
@@ -512,21 +547,13 @@ class NewsDatabase:
         top_k: int = 3,
         min_score: float = 0.05,
     ) -> tuple[list[dict], int]:
-        """Searches SQLite FTS5 using BM25 ranking.
-
-        Returns `(matched_articles, current_index_version)`.
-        In SQLite FTS5, `bm25(news_fts)` returns a negative number where more negative
-        means stronger match. We convert it to a positive relevance score `abs(bm25_raw)`
-        plus a keyword overlap boost so scores are intuitive (`> 0.0`).
-        """
-        # 1. Detect if the user explicitly asked about an unsupported ticker (e.g., "SOL", "DOGE", "XRP", "AAPL")
+        """Searches SQLite FTS5 using BM25 ranking."""
         explicit_unknown_tickers = {
             t.upper()
-            for t in re.findall(r"\b[A-Za-z]{3,5}\b", query)
+            for t in re.findall(r"\b[A-Za-z]{3,8}\b", query)
             if t.upper() in self.UNKNOWN_TICKERS
         }
         tokens = self._extract_fts_tokens(query, symbol=symbol)
-        # Specific topical keywords excluding generic market/movement words
         specific_topic_tokens = [
             t for t in tokens if t not in self.GENERIC_MARKET_WORDS
         ]
@@ -538,12 +565,11 @@ class NewsDatabase:
                 if explicit_unknown_tickers:
                     return [], index_version
 
-                # If user asked a general question without specific tokens, include BTC/ETH so FTS5 ranks all relevant news
                 search_tokens = list(tokens)
-                if not any(t in search_tokens for t in ("btc", "eth")):
-                    search_tokens.extend(["btc", "eth"])
+                if not search_tokens:
+                    search_tokens = ["btc", "eth", "nvda", "aapl"]
 
-                fts_expr = " OR ".join(f'"{t}"*' for t in search_tokens[:12])
+                fts_expr = " OR ".join(f'"{t}"*' for t in search_tokens[:14])
                 rows = conn.execute(
                     """
                     SELECT
@@ -562,25 +588,23 @@ class NewsDatabase:
                     ORDER BY raw_bm25 ASC, n.timestamp_ms DESC
                     LIMIT ?
                     """,
-                    (fts_expr, max(top_k * 4, 12)),
+                    (fts_expr, max(top_k * 5, 15)),
                 ).fetchall()
             finally:
                 conn.close()
 
-        target_sym = symbol.strip().upper() if symbol else None
+        target_sym = (normalize_instrument_symbol(symbol) or symbol.strip().upper()) if symbol else None
 
         results: list[dict] = []
         for r in rows:
             syms: list[str] = json.loads(r["symbols_json"])
             if target_sym:
-                if not any(target_sym in s or s.startswith(target_sym) for s in syms):
+                if not any(target_sym == s or target_sym in s or s.startswith(target_sym) for s in syms):
                     continue
 
-            doc_text = f"{r['headline']} {r['body']} {' '.join(syms)}".lower()
+            doc_text = f"{r['headline']} {r['body']} {' '.join(syms)} {r['source']}".lower()
             matched_tokens = [t for t in tokens if t in doc_text or t[:4] in doc_text]
 
-            # If the user asked about a specific non-market topic (e.g. "lunar eclipse", "mars colony"),
-            # require at least one specific topic word (or 4-char stem) to appear in the article.
             if specific_topic_tokens and not any(
                 (t in doc_text or (len(t) >= 4 and t[:4] in doc_text))
                 for t in specific_topic_tokens

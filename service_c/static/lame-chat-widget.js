@@ -294,6 +294,15 @@
             <select class="lame-c-w-select" id="lame-w-symbol">
               <option value="BTC-USDT" ${currentSymbol === "BTC-USDT" ? "selected" : ""}>BTC/USDT</option>
               <option value="ETH-USDT" ${currentSymbol === "ETH-USDT" ? "selected" : ""}>ETH/USDT</option>
+              <option value="SOL-USDT" ${currentSymbol === "SOL-USDT" ? "selected" : ""}>SOL/USDT</option>
+              <option value="NVDA" ${currentSymbol === "NVDA" ? "selected" : ""}>NVDA (US)</option>
+              <option value="AAPL" ${currentSymbol === "AAPL" ? "selected" : ""}>AAPL (US)</option>
+              <option value="TSLA" ${currentSymbol === "TSLA" ? "selected" : ""}>TSLA (US)</option>
+              <option value="ASML" ${currentSymbol === "ASML" ? "selected" : ""}>ASML (EU)</option>
+              <option value="TSM" ${currentSymbol === "TSM" ? "selected" : ""}>TSM (APAC)</option>
+              <option value="RELIANCE" ${currentSymbol === "RELIANCE" ? "selected" : ""}>RELIANCE (IN)</option>
+              <option value="GOLD" ${currentSymbol === "GOLD" ? "selected" : ""}>GOLD (Cmdty)</option>
+              <option value="WTI" ${currentSymbol === "WTI" ? "selected" : ""}>WTI Oil</option>
             </select>
             <span class="lame-c-w-badge" id="lame-w-idx">KB v-</span>
           </div>
@@ -307,14 +316,15 @@
         <div class="lame-c-w-messages" id="lame-w-messages">
           <div class="lame-c-w-msg bot">
             <div class="lame-c-w-status ANSWERED">GROUNDED RAG READY</div>
-            <div>Ask why a spot pair moved (e.g. <em>"Why did BTC-USDT drop?"</em>). Cites verified FTS5 news IDs and Service B price snapshots.</div>
+            <div>Ask why any crypto pair, global stock, or commodity moved (e.g. <em>"Why did BTC-USDT or NVDA move?"</em>). Cites verified FTS5 news IDs and live price snapshots.</div>
           </div>
         </div>
 
         <div class="lame-c-w-quick">
           <button type="button" class="lame-c-w-chip" data-q="Why did BTC-USDT drop over the last 15 minutes?" data-sym="BTC-USDT">BTC Drop</button>
           <button type="button" class="lame-c-w-chip" data-q="What is driving ETH-USDT Layer-2 demand?" data-sym="ETH-USDT">ETH L2</button>
-          <button type="button" class="lame-c-w-chip" data-q="Are there wash-trading volume anomalies?" data-sym="BTC-USDT">Wash Trade</button>
+          <button type="button" class="lame-c-w-chip" data-q="Why are NVDA and AAPL moving today?" data-sym="NVDA">NVDA/AAPL</button>
+          <button type="button" class="lame-c-w-chip" data-q="Why are Gold and Oil moving today?" data-sym="GOLD">Gold/Oil</button>
           <button type="button" class="lame-c-w-chip" data-q="Why did SOL-USDT crash after the eclipse?" data-sym="BTC-USDT">Refusal</button>
         </div>
 

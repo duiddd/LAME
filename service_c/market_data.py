@@ -19,6 +19,7 @@ import threading
 import time
 from typing import Optional
 
+from .catalog import GLOBAL_INSTRUMENTS, normalize_instrument_symbol
 from .config import settings
 from .models import MarketContextOut, MarketSnapshot, OrderBookLevel
 
@@ -26,7 +27,7 @@ logger = logging.getLogger("service_c.market_data")
 
 
 class MarketDataCache:
-    """Thread-safe cache of latest Service B market snapshots per symbol."""
+    """Thread-safe cache of latest Service B & global exchange market snapshots per symbol."""
 
     DEFAULT_PRICES: dict[str, dict] = {
         "BTC-USDT": {
@@ -98,9 +99,10 @@ class MarketDataCache:
         - Drops strictly older snapshots (`ts_ms < existing.timestamp_ms`).
         - Accepts equal timestamps (`ts_ms == existing.timestamp_ms`) as a Service B heartbeat.
         """
-        symbol = str(payload.get("symbol", "")).strip().upper()
-        if not symbol:
+        raw_sym = str(payload.get("symbol", "")).strip().upper()
+        if not raw_sym:
             return False
+        symbol = normalize_instrument_symbol(raw_sym) or raw_sym
 
         raw_ts = (
             payload.get("timestamp_ms")
@@ -120,10 +122,8 @@ class MarketDataCache:
                 and source == "service_b_ws"
             ):
                 if ts_ms < existing.timestamp_ms:
-                    # Strictly older snapshot -> drop per D6
                     return False
                 if ts_ms == existing.timestamp_ms and payload.get("heartbeat") is True:
-                    # Explicit heartbeat with identical last_ms -> refresh receipt timestamp
                     self._received_wall_ms[symbol] = now_wall_ms
                     return True
                 if (
@@ -131,7 +131,6 @@ class MarketDataCache:
                     and payload.get("last_price") is not None
                     and self._normalize_price(symbol, int(payload["last_price"])) == existing.last_price
                 ):
-                    # Repeated identical snapshot from Service B 1s heartbeat -> refresh receipt time
                     self._received_wall_ms[symbol] = now_wall_ms
                     return True
                 if ts_ms == existing.timestamp_ms:
@@ -178,25 +177,46 @@ class MarketDataCache:
 
     def get_market_context(self, symbol: Optional[str] = None) -> MarketContextOut:
         """Returns freshness-labelled market context for the requested symbol."""
-        target = (symbol or "BTC-USDT").strip().upper()
-        if target == "BTC":
-            target = "BTC-USDT"
-        elif target == "ETH":
-            target = "ETH-USDT"
+        raw_target = (symbol or "BTC-USDT").strip().upper()
+        target = normalize_instrument_symbol(raw_target) or raw_target
 
         now_ms = int(time.time() * 1000)
         with self._lock:
             snap = self._snapshots.get(target)
             received_ms = self._received_wall_ms.get(target, now_ms)
             if snap is None:
+                meta = GLOBAL_INSTRUMENTS.get(target)
+                base_p = int(meta["price"]) if meta else None
+                step = max(1, round((base_p or 100) * 0.002)) if base_p else 1
+                bids = (
+                    [
+                        OrderBookLevel(price=max(1, base_p - step), qty=100),
+                        OrderBookLevel(price=max(1, base_p - 2 * step), qty=250),
+                        OrderBookLevel(price=max(1, base_p - 3 * step), qty=500),
+                    ]
+                    if base_p is not None
+                    else []
+                )
+                asks = (
+                    [
+                        OrderBookLevel(price=base_p + step, qty=100),
+                        OrderBookLevel(price=base_p + 2 * step, qty=250),
+                        OrderBookLevel(price=base_p + 3 * step, qty=500),
+                    ]
+                    if base_p is not None
+                    else []
+                )
                 snap = MarketSnapshot(
                     symbol=target,
                     timestamp_ms=now_ms,
-                    last_price=None,
-                    bids=[],
-                    asks=[],
+                    last_price=base_p,
+                    bids=bids,
+                    asks=asks,
                     source="simulated_fallback",
                 )
+                if base_p is not None:
+                    self._snapshots[target] = snap
+                    self._received_wall_ms[target] = now_ms
             if snap.source == "simulated_fallback" and not self._ws_connected.get(target, False):
                 freshness_sec = round((now_ms - received_ms) / 1000.0, 2)
                 if freshness_sec > 2.0:
@@ -204,7 +224,6 @@ class MarketDataCache:
                     snap.timestamp_ms = now_ms - 450
                     freshness_sec = 0.45
             else:
-                # Measure freshness from receipt wall clock (Service A D15 rule for Service B heartbeats)
                 freshness_sec = round(max(0.0, (now_ms - received_ms) / 1000.0), 2)
 
             is_stale = freshness_sec > settings.market_stale_threshold_seconds
@@ -225,7 +244,9 @@ class MarketDataCache:
     def get_all_snapshots(self) -> dict[str, dict]:
         """Returns full top-3 snapshots for all tracked symbols."""
         out: dict[str, dict] = {}
-        for sym in settings.supported_symbols:
+        with self._lock:
+            tracked = list(dict.fromkeys([*settings.supported_symbols, *self._snapshots.keys()]))
+        for sym in tracked:
             ctx = self.get_market_context(sym)
             with self._lock:
                 snap = self._snapshots.get(sym)
