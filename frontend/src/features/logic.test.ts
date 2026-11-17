@@ -179,9 +179,11 @@ describe("session", () => {
   });
 
   it("knows the trading session", () => {
-    expect(isMarketOpen(new Date("2026-11-06T10:00:00Z"))).toBe(true);
-    expect(isMarketOpen(new Date("2026-11-06T09:29:00Z"))).toBe(false);
-    expect(isMarketOpen(new Date("2026-11-06T16:00:00Z"))).toBe(false);
-    expect(isMarketOpen(new Date("2026-07-06T09:00:00Z"))).toBe(true);
+    // Winter: Dublin is UTC. Summer: Dublin is UTC+1.
+    expect(isMarketOpen(new Date("2026-11-06T00:00:00Z"))).toBe(true);
+    expect(isMarketOpen(new Date("2026-11-06T22:59:00Z"))).toBe(true);
+    expect(isMarketOpen(new Date("2026-11-06T23:00:00Z"))).toBe(false);
+    expect(isMarketOpen(new Date("2026-07-06T21:59:00Z"))).toBe(true);
+    expect(isMarketOpen(new Date("2026-07-06T22:00:00Z"))).toBe(false);
   });
 });

@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../shared/api";
-import { groupDecimal, isMarketOpen } from "../../shared/format";
+import { groupDecimal, isMarketOpen, SESSION_CLOSE, SESSION_OPEN } from "../../shared/format";
 import type { Order, SymbolSummary } from "../../shared/types";
 import { mergeOrder } from "../orders/merge";
 import { ACCOUNT_KEY, ORDERS_KEY, useAccount } from "../orders/useOrders";
@@ -106,7 +106,7 @@ export function OrderForm({ summary, signedIn }: { summary: SymbolSummary; signe
         <input required inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} className="min-w-0 flex-1 bg-transparent py-1.5 text-right outline-none" />
         <span className="text-muted">{summary.base}</span>
       </label>
-      {!open && <p className="text-buoy">Market closed. Orders are accepted 09:30 to 16:00 Dublin time.</p>}
+      {!open && <p className="text-buoy">Market closed. Orders are accepted {SESSION_OPEN} to {SESSION_CLOSE} Dublin time.</p>}
       {message && (
         <p role={message.tone === "error" ? "alert" : "status"} className={message.tone === "error" ? "text-down" : "text-up"}>
           {message.text}
