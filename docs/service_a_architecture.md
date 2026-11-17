@@ -428,7 +428,7 @@ A adapts to what D and B implement today; nothing here requires them to change. 
 | D's `ts` is its generation time; B's `Trade` carries no timestamp | Candles use D's `ts`. Trades that arrive after an A outage land correctly; those after a D–B outage are bunched (D22) |
 | B's market orders have no price cap, and D refuses a price on them | A sends a market buy as a capped limit order and cancels the remainder (section 7.3) |
 | B's heartbeat repeats `last_ms` | Freshness is measured from receipt, not from `last_ms` (section 7.2) |
-| B accepts orders only 09:30–16:00 Dublin time and has no development override | The UI shows "Market closed", and tests outside those hours use the fake D |
+| B accepts orders 00:00–23:00 Dublin time (changed from 09:30–16:00 on 11-06) and cancels resting orders at 23:00 | The UI shows "Market closed" outside those hours |
 | B's trading day is the Dublin date, `YYYY-MM-DD` | A uses `b_day` for the day open |
 | B reads `SYMBOLS` from the environment, and D reads its own `symbols.json` with `tick` and `lot` | A has its own symbol file with `tick`, `lot`, limits and decimals. A test checks that `tick` and `lot` match D's file |
 | D's `linked_accounts.json` fixes user IDs (1024, 1025, 3001–3003) | A seeds those users from the same file; registered users get IDs from 100000 upwards |
@@ -487,7 +487,7 @@ A adapts to what D and B implement today; nothing here requires them to change. 
 | M5 Resilience | Reconciliation, resends, circuit breaker, shedding, metrics | `feature/trading` | The failure cases in section 16 pass |
 | M6 Integration | Real D and B, C's compose file, the proposal's validation scenarios | Both | The proposal's failure tests and dropped-event recovery pass |
 
-M3 runs against a fake D that follows D's code on `feature/risk_control`, so failures can be injected. D's README says it has not yet been run against B's real engine, and neither D nor B is in the root compose file yet, so M6 depends on those. B accepts orders only 09:30–16:00 Dublin time, so runs against the real B must fall inside those hours.
+M3 runs against a fake D that follows D's code on `feature/risk_control`, so failures can be injected. On 11-17, A, D, B, C and the frontend ran together locally (`service_a/tools/run_local.ps1`), and `service_a/tools/local_e2e.py` passed against the real B and D, including D's modify. Packaging them into the root compose file is still to do.
 
 During M1, MSW mocks A's REST and SSE, a small script stands in for B's market data until the real service is used, and C is the real service.
 

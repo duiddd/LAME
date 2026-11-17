@@ -43,6 +43,29 @@ The integration check needs a checkout of `feature/risk_control`. On Windows, D 
 D_SOURCE=/path/to/service_d PYTHONPATH=. .venv/Scripts/python -m tools.integration_check
 ```
 
+## Run all services locally
+
+`tools/run_local.ps1` checks out each teammate's branch into a worktree under `..\LAME-local`
+(next to this repository), then runs B and PostgreSQL in Docker and A, C, D and the frontend as
+local processes. Nothing is merged and no teammate's code is changed. It needs Docker Desktop,
+Python 3.12, Node and Git; it works from cmd or PowerShell:
+
+```bash
+powershell -ExecutionPolicy Bypass -File service_a	oolsun_local.ps1
+```
+
+| Option | What it does |
+| --- | --- |
+| (none) | Fetch, update the worktrees, install what is missing, start everything, wait until healthy |
+| `-NoUpdate` | Start without fetching or moving the worktrees |
+| `-Status` | Show which services answer |
+| `-Check` | Run `tools/local_e2e.py`: orders through the real D and B, settlement, modify, cancel, market buy |
+| `-Stop` | Stop the processes and the containers; data is kept |
+| `-Reset` | Stop and erase A's, B's, C's and D's data together |
+
+C runs on 8081 with RabbitMQ off, because 8080 and 5672 are often taken by other Windows
+services. The first start compiles B in a `rust:1.90` container, which takes about 6 minutes.
+
 ## Operating notes
 
 - Reset A's and D's data together. `notify_seq` restarts when D's data is reset, and A would take

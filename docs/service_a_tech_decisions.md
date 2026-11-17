@@ -389,7 +389,7 @@
   - 测试分层:单元、真实 PostgreSQL 的集成、hypothesis 不变式、fake D 的故障、前端逻辑,以及 `tools/integration_check.py`(真实的 A 与 D,加 D 自带的 fake B)和一次浏览器检查。
 - **理由:** 两端都由同一人开发,一份契约可以避免不一致。fake D 使 A 不必等 D 完成。A 的正确性依赖 `FOR UPDATE`、`CHECK` 与条件更新,SQLite 无法重现。
 - **备选:** 手写 TypeScript 类型;自写 mock server;Testcontainers;SQLite。
-- **后果:** fake D 依 `feature/risk_control` 的代码行为编写。D 与 B 尚未联调,也都还没有加入根目录的 compose,M6 依赖这些。B 只在都柏林时间 09:30–16:00 接单,联调要安排在这个时段。系统负载测试与故障注入脚本按提案属于 B 与 D,A 不重复。
+- **后果:** fake D 依 `feature/risk_control` 的代码行为编写。11-17 已在本机让 A、D、B、C 与前端一起运行(`service_a/tools/run_local.ps1`),`service_a/tools/local_e2e.py` 对真实的 B 与 D 通过,包括 D 的改单。打包进根目录的 compose 尚未完成。系统负载测试与故障注入脚本按提案属于 B 与 D,A 不重复。
 
 ## 3. 待决事项(A 内部)
 
@@ -407,7 +407,7 @@ A 以 D 与 B 目前的实现为准进行调整,以下事项都不要求队友�
 | D 的 `ts` 是生成通知的时间;B 的 `Trade` 没有时间戳 | K 线使用 D 的 `ts`(D22) |
 | B 的市价单没有价格上限,D 拒绝市价单带价格 | 市价买单以带上限的限价单发送,再撤销剩余(D11) |
 | B 的心跳重复相同的 `last_ms` | 新鲜度以收到消息的时间计算(D11) |
-| B 只在都柏林时间 09:30–16:00 接单,没有开发用的绕过方式 | 界面显示「休市」,时段外的测试使用 fake D |
+| B 在都柏林时间 00:00–23:00 接单(11-06 由 09:30–16:00 改为此时段),23:00 撤销所有挂单 | 时段外界面显示「休市」 |
 | B 的交易日是都柏林日期 `YYYY-MM-DD` | 当日开盘价依 `b_day` 计算 |
 | B 从环境变量读 `SYMBOLS`,D 读自己的 `symbols.json`(只有 `tick`、`lot`) | A 有自己的交易对配置,测试检查 `tick`、`lot` 与 D 的文件一致(D10) |
 | D 的 `linked_accounts.json` 写定了 `user_id` | A 依同一文件建立种子用户(D16) |
