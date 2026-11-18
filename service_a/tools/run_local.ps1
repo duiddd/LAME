@@ -186,9 +186,20 @@ function Start-Containers($rebuildB) {
 
     Say "Starting B (the first start compiles it, about 6 minutes)"
     $src = Join-Path $Workspace "main\match_engine"
-    if (-not (docker ps -a --filter "name=^lame-b$" --format "{{.Names}}")) {
+    # B reads its pairs from config\pairs.json since 18 Nov; a container made before that lacks the mount.
+    $pairs = Join-Path $src "config\pairs.json"
+    # A pairs.local.json in the workspace overrides B's file, while the team settles the lot sizes.
+    if (Test-Path (Join-Path $Workspace "pairs.local.json")) { $pairs = Join-Path $Workspace "pairs.local.json" }
+    $exists = docker ps -a --filter "name=^lame-b$" --format "{{.Names}}"
+    if ($exists -and (Test-Path $pairs) -and -not (docker inspect lame-b --format "{{range .Mounts}}{{.Destination}} {{end}}" | Select-String "/etc/lame/pairs.json")) {
+        Warn "B now needs its pair file: recreating its container (data is kept)"
+        Invoke-Quiet { docker rm -f lame-b }
+        $exists = $null
+    }
+    if (-not $exists) {
+        $pairsMount = if (Test-Path $pairs) { @("-v", "${pairs}:/etc/lame/pairs.json:ro", "-e", "PAIRS_FILE=/etc/lame/pairs.json") } else { @() }
         docker run -d --name lame-b -v "${src}:/src" -v lame-b-target:/src/target -v lame-b-cargo:/usr/local/cargo/registry `
-            -v lame-b-data:/data -w /src -p 9999:9999 -p 11659:11659 `
+            -v lame-b-data:/data -w /src -p 9999:9999 -p 11659:11659 @pairsMount `
             -e "SYMBOLS=BTC-USDT:1:1,ETH-USDT:1:1" -e EVENT_DB_DIR=/data -e RUST_LOG=info `
             rust:1.90 cargo run --release | Out-Null
     } elseif ($rebuildB) {
