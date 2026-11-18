@@ -36,6 +36,7 @@ from .live_news import ActivityAndNewsManager
 from .market_data import market_cache
 from .metrics import metrics
 from .models import ChatRequest, ChatResponse, DLQItemOut, NewsItemOut
+from .observability import observability_aggregator
 from .rag import RAGEngine
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -130,6 +131,16 @@ async def serve_widget_page():
     if not widget_path.exists():
         raise HTTPException(status_code=404, detail="widget.html not found")
     return FileResponse(widget_path, media_type="text/html")
+
+
+@app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/observability", response_class=HTMLResponse, include_in_schema=False)
+async def serve_observability_dashboard():
+    """Serves the standalone LAME Observability Dashboard HTML page."""
+    dash_path = STATIC_DIR / "dashboard.html"
+    if not dash_path.exists():
+        raise HTTPException(status_code=404, detail="dashboard.html not found")
+    return FileResponse(dash_path, media_type="text/html")
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -287,6 +298,12 @@ async def inject_raw_news(req: RawInjectRequest):
 async def get_metrics_summary():
     """Returns structured JSON summary of AI metrics (latency, tokens, refusal rate, DLQ)."""
     return metrics.summary_dict()
+
+
+@app.get("/api/observability")
+async def get_system_observability():
+    """Aggregates RED metrics (rate, errors, latency) across A/B/D/C plus AI token cost."""
+    return await observability_aggregator.collect()
 
 
 @app.get("/healthz")

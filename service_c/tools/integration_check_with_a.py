@@ -324,19 +324,38 @@ async def run_checks() -> None:
             chat_inj,
         )
 
-        # 8. Prometheus Metrics check
+        # 8. Prometheus Metrics & Unified Observability Dashboard check
         m_text = (await client.get("/metrics")).text
         check(
-            "GET /metrics exposes model latency, token use, refusal rate, and DLQ count",
+            "GET /metrics exposes model latency, token use, token cost, refusal rate, and DLQ count",
             all(
                 metric_name in m_text
                 for metric_name in (
                     "lame_c_llm_inference_duration_seconds",
                     "lame_c_tokens_total",
+                    "lame_c_estimated_token_cost_usd",
                     "lame_c_refusal_total",
                     "lame_c_rabbitmq_dlq_messages_count",
                 )
             ),
+        )
+
+        obs_resp = await client.get("/api/observability")
+        obs_json = obs_resp.json() if obs_resp.status_code == 200 else {}
+        check(
+            "GET /api/observability returns RED signals for A/B/D/C and AI token cost",
+            obs_resp.status_code == 200
+            and obs_json.get("services_total") == 4
+            and "cluster" in obs_json
+            and "ai" in obs_json
+            and "estimated_equivalent_cost_usd" in obs_json["ai"],
+            obs_json,
+        )
+
+        dash_resp = await client.get("/dashboard")
+        check(
+            "GET /dashboard serves standalone observability HTML page",
+            dash_resp.status_code == 200 and "LAME OBSERVABILITY" in dash_resp.text,
         )
 
     print(f"\nALL {len(PASSED)} SERVICE A <-> SERVICE C INTEGRATION CHECKS PASSED", flush=True)

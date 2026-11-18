@@ -1,0 +1,109 @@
+{
+  "id": null,
+  "uid": "lame-overview",
+  "title": "LAME System & AI Observability",
+  "tags": ["lame", "comp41720", "red", "ai"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Request Rate (RPS) by Service",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(lame_a_http_request_duration_seconds_count[1m]))", "legendFormat": "Service A (HTTP)" },
+        { "refId": "B", "expr": "sum(rate(lame_b_commands_total[1m]))", "legendFormat": "Service B (Commands)" },
+        { "refId": "C", "expr": "sum(rate(lame_c_http_requests_total[1m]))", "legendFormat": "Service C (HTTP)" },
+        { "refId": "D", "expr": "sum(rate(lame_d_decisions_total[1m])) + sum(rate(lame_d_refused_total[1m]))", "legendFormat": "Service D (Orders)" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Errors & Refusals (Rate/s)",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(lame_a_orders_total{result=~\"SYSTEM_BUSY|RISK_REJECTED|NO_FRESH_PRICE|REJECTED\"}[1m]))", "legendFormat": "Service A Order Errors" },
+        { "refId": "B", "expr": "rate(lame_b_bad_frames_total[1m]) + rate(lame_b_outbound_overflows_total[1m])", "legendFormat": "Service B Frame/Overflow Errors" },
+        { "refId": "C", "expr": "sum(rate(lame_c_http_errors_total[1m]))", "legendFormat": "Service C HTTP 4xx/5xx" },
+        { "refId": "D", "expr": "sum(rate(lame_d_refused_total[1m]))", "legendFormat": "Service D 503 Refusals" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Latency p95 (Seconds) — Services A, D, C",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(lame_a_http_request_duration_seconds_bucket[1m])))", "legendFormat": "Service A HTTP p95" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(lame_a_order_completion_seconds_bucket[1m])))", "legendFormat": "Service A Order Completion p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.95, sum by (le) (rate(lame_d_decision_seconds_bucket[1m])))", "legendFormat": "Service D Risk Decision p95" },
+        { "refId": "D", "expr": "histogram_quantile(0.95, sum by (le) (rate(lame_c_chat_latency_seconds_bucket[1m])))", "legendFormat": "Service C RAG End-to-End p95" },
+        { "refId": "E", "expr": "histogram_quantile(0.95, sum by (le) (rate(lame_c_llm_inference_duration_seconds_bucket[1m])))", "legendFormat": "Service C Ollama Inference p95" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "AI Token Usage & Refusal Rate (Service C)",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "lame_c_tokens_total{type=\"prompt\"}", "legendFormat": "Prompt Tokens" },
+        { "refId": "B", "expr": "lame_c_tokens_total{type=\"eval\"}", "legendFormat": "Eval Tokens" },
+        { "refId": "C", "expr": "lame_c_tokens_saved_by_gates_total", "legendFormat": "Tokens Saved by Gates" },
+        { "refId": "D", "expr": "sum(lame_c_refusal_total)", "legendFormat": "Total Refusals" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "AI Estimated Reference Token Cost (USD)",
+      "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "lame_c_estimated_token_cost_usd{mode=\"reference_baseline\"}", "legendFormat": "Equiv USD Baseline" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Service C DLQ & Stripped Citations",
+      "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "lame_c_rabbitmq_dlq_messages_count", "legendFormat": "RabbitMQ DLQ" },
+        { "refId": "B", "expr": "lame_c_hallucinated_citations_stripped_total", "legendFormat": "Stripped Citations" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Service A Circuit Breaker & Shedding",
+      "gridPos": { "x": 12, "y": 16, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "lame_a_circuit_state", "legendFormat": "Circuit State (0=C,1=HO,2=O)" },
+        { "refId": "B", "expr": "lame_a_shedding_active", "legendFormat": "Shedding Active" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Service D Ready & Service B Subscribers",
+      "gridPos": { "x": 18, "y": 16, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "lame_d_ready", "legendFormat": "D Ready" },
+        { "refId": "B", "expr": "lame_b_md_subscribers", "legendFormat": "B MD Subscribers" }
+      ]
+    }
+  ]
+}

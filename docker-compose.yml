@@ -1,12 +1,31 @@
-version: "3.9"
-
-# Service B (matching engine) is defined in its own directory, with paths
-# relative to it: service `service-b`, volume `service_b_data`, ports 9999 and
-# 11659. Wait for it with `depends_on: service-b: condition: service_healthy`.
+# Root Docker Compose orchestration for LAME (COMP41720 Group Project)
+#
+# Service B (matching engine) is defined in match_engine/compose.yaml.
+# Once feature/trading merges Service A into main, also include service_a/docker-compose.yml.
 include:
   - match_engine/compose.yaml
 
 services:
+  service-d:
+    build:
+      context: ./service_d
+      dockerfile: Dockerfile
+    container_name: lame-service-d
+    ports:
+      - "8400:8400"
+    environment:
+      - D_PORT=8400
+      - B_CTRL_URL=ws://service-b:11659/d
+      - A_NOTIFY_URL=http://service-a:8000/internal/order-events
+      - DATA_DIR=/data
+      - FAULTS_ENABLED=${FAULTS_ENABLED:-false}
+    volumes:
+      - service_d_data:/data
+    depends_on:
+      service-b:
+        condition: service_healthy
+    restart: unless-stopped
+
   service-c:
     build:
       context: ./service_c
@@ -21,6 +40,11 @@ services:
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
       - RABBITMQ_ENABLED=true
       - SERVICE_B_WS_URL=ws://service-b:9999/md
+      - SERVICE_A_URL=http://service-a:8000
+      - SERVICE_B_CTRL_URL=http://service-b:11659
+      - SERVICE_D_URL=http://service-d:8400
+      - PROMETHEUS_URL=http://prometheus:9090
+      - GRAFANA_URL=http://localhost:3001
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_MODEL=llama3.2:1b
       - ALLOW_DETERMINISTIC_LLM_FALLBACK=true
@@ -53,6 +77,41 @@ services:
       - ollama_models:/root/.ollama
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: lame-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=24h"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: lame-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/lame_overview.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   service_c_data:
+  service_d_data:
   ollama_models:
+  prometheus_data:
+  grafana_data:

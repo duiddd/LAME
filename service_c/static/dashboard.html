@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LAME Exchange — System &amp; AI Observability Dashboard</title>
+  <style>
+    :root {
+      --bg: #0e1a24;
+      --panel: #142330;
+      --raised: #1b2e3e;
+      --line: #263b4c;
+      --ink: #dce6ec;
+      --muted: #8ba2b2;
+      --buoy: #f2b84b;
+      --up: #35c495;
+      --down: #ef6f84;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 18px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+    .brand { font-weight: 700; color: var(--buoy); letter-spacing: 0.04em; }
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      margin-right: 12px;
+      font-weight: 500;
+    }
+    nav a.active { color: var(--buoy); }
+    .spacer { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+    .btn {
+      border: 1px solid var(--line);
+      background: var(--raised);
+      color: var(--ink);
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 12px;
+    }
+    main { padding: 16px; max-width: 1360px; margin: 0 auto; display: grid; gap: 16px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 14px;
+    }
+    .k-label { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.04em; }
+    .k-val { font-size: 24px; font-weight: 700; margin: 6px 0 4px; }
+    .k-sub { font-size: 11px; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    th { font-size: 11px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--line);
+    }
+    .up { color: var(--up); border-color: rgba(53, 196, 149, 0.35); background: rgba(53, 196, 149, 0.12); }
+    .degraded { color: var(--buoy); border-color: rgba(242, 184, 75, 0.35); background: rgba(242, 184, 75, 0.12); }
+    .offline { color: var(--down); border-color: rgba(239, 111, 132, 0.35); background: rgba(239, 111, 132, 0.12); }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="brand">LAME OBSERVABILITY</span>
+    <nav>
+      <a href="/">News &amp; AI Analyst</a>
+      <a href="/dashboard" class="active">System Dashboard</a>
+      <a href="/metrics" target="_blank">/metrics</a>
+    </nav>
+    <div class="spacer">
+      <span class="k-sub" id="updated-at">Polling every 5s…</span>
+      <a class="btn" id="grafana-link" href="http://localhost:3001" target="_blank">Open Grafana (:3001)</a>
+      <button class="btn" onclick="loadObs()">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="kpi-grid">
+      <div class="card">
+        <div class="k-label">Cluster Request Rate</div>
+        <div class="k-val" id="kpi-rps">0.00 req/s</div>
+        <div class="k-sub" id="kpi-reqs">0 total requests</div>
+      </div>
+      <div class="card">
+        <div class="k-label">Cluster Error Rate</div>
+        <div class="k-val" id="kpi-err">0.00%</div>
+        <div class="k-sub" id="kpi-errs">0 errors across A / B / D / C</div>
+      </div>
+      <div class="card">
+        <div class="k-label">AI Token Usage &amp; Ref Baseline Cost</div>
+        <div class="k-val" style="color:var(--buoy);" id="kpi-cost">$0.0000</div>
+        <div class="k-sub" id="kpi-toks">0 prompt + 0 eval tokens</div>
+      </div>
+      <div class="card">
+        <div class="k-label">AI Guardrail Savings &amp; Refusals</div>
+        <div class="k-val" style="color:var(--up);" id="kpi-refusal">0.0%</div>
+        <div class="k-sub" id="kpi-saved">0 tokens saved pre-LLM · DLQ: 0</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 style="margin:0 0 10px;font-size:14px;">Per-Service RED Metrics (Request Rate · Errors · Latency)</h3>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th>Status</th>
+              <th>Request Rate</th>
+              <th>Total Reqs</th>
+              <th>Errors</th>
+              <th>Error %</th>
+              <th>p50 / p95 / p99 Latency</th>
+              <th>Key Resilience Gauges</th>
+            </tr>
+          </thead>
+          <tbody id="svc-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 style="margin:0 0 10px;font-size:14px;">AI Component Golden Signals (Service C · Ollama RAG)</h3>
+      <div class="kpi-grid" id="ai-breakdown"></div>
+    </section>
+  </main>
+
+  <script>
+    async function loadObs() {
+      try {
+        const r = await fetch("/api/observability");
+        const d = await r.json();
+        document.getElementById("updated-at").textContent =
+          `Up: ${d.services_up}/${d.services_total} · ${new Date(d.generated_at_ms).toLocaleTimeString()}`;
+        if (d.links && d.links.grafana_url) {
+          document.getElementById("grafana-link").href = d.links.grafana_url;
+        }
+        document.getElementById("kpi-rps").textContent = `${Number(d.cluster.request_rate_rps).toFixed(2)} req/s`;
+        document.getElementById("kpi-reqs").textContent = `${d.cluster.requests_total} total requests`;
+        document.getElementById("kpi-err").textContent = `${Number(d.cluster.error_rate_pct).toFixed(2)}%`;
+        document.getElementById("kpi-errs").textContent = `${d.cluster.errors_total} errors across scraped services`;
+
+        const ai = d.ai;
+        document.getElementById("kpi-cost").textContent =
+          `$${Number(ai.estimated_equivalent_cost_usd).toFixed(5)} ($${Number(ai.direct_api_spend_usd).toFixed(2)} local)`;
+        document.getElementById("kpi-toks").textContent =
+          `${ai.prompt_tokens} prompt + ${ai.eval_tokens} eval = ${ai.total_tokens} tokens (${ai.model})`;
+        document.getElementById("kpi-refusal").textContent = `${(Number(ai.refusal_rate) * 100).toFixed(1)}%`;
+        document.getElementById("kpi-saved").textContent =
+          `${ai.tokens_saved_by_gates} tokens saved pre-LLM · DLQ: ${ai.dlq_messages_count}`;
+
+        const rows = d.services.map((s) => {
+          const lat = s.latency_ms || {};
+          const gauges = Object.entries(s.key_gauges || {})
+            .map(([k, v]) => `${k}: <strong>${v}</strong>`)
+            .join(" · ") || (s.error || "unreachable");
+          const cls = s.status === "up" ? "up" : s.status === "degraded" ? "degraded" : "offline";
+          return `<tr>
+            <td><strong>${s.name}</strong><div class="k-sub">${s.owner}</div></td>
+            <td><span class="pill ${cls}">${s.status.toUpperCase()}</span></td>
+            <td>${Number(s.request_rate_rps || 0).toFixed(2)} /s</td>
+            <td>${s.requests_total}</td>
+            <td>${s.errors_total}</td>
+            <td>${Number(s.error_rate_pct || 0).toFixed(2)}%</td>
+            <td>${Number(lat.p50 || 0).toFixed(1)} / ${Number(lat.p95 || 0).toFixed(1)} / ${Number(lat.p99 || 0).toFixed(1)} ms${lat.note ? `<div class="k-sub">${lat.note}</div>` : ""}</td>
+            <td style="font-size:12px;">${gauges}</td>
+          </tr>`;
+        }).join("");
+        document.getElementById("svc-rows").innerHTML = rows;
+
+        document.getElementById("ai-breakdown").innerHTML = `
+          <div><div class="k-label">LLM Latency (p50 / p95 / p99)</div><div class="k-val" style="font-size:18px;">${ai.llm_inference_ms.p50} / ${ai.llm_inference_ms.p95} / ${ai.llm_inference_ms.p99} ms</div><div class="k-sub">Chat end-to-end p95: ${ai.chat_latency_ms.p95} ms</div></div>
+          <div><div class="k-label">Token Unit Rates</div><div class="k-val" style="font-size:18px;">$${ai.prompt_cost_per_1m_usd} / $${ai.eval_cost_per_1m_usd} per 1M</div><div class="k-sub">Est. $${ai.cost_per_1k_requests_usd} / 1k chats (${ai.execution_mode})</div></div>
+          <div><div class="k-label">Safety Guardrails</div><div class="k-val" style="font-size:18px;">${ai.answered_total} ok / ${ai.hallucinated_citations_stripped_total} stripped</div><div class="k-sub">Insufficient: ${ai.refusal_total.insufficient_evidence || 0} · Injection: ${ai.refusal_total.unsafe_injection || 0} · Advice: ${ai.refusal_total.investment_advice || 0}</div></div>
+          <div><div class="k-label">Knowledge &amp; Ingestion</div><div class="k-val" style="font-size:18px;">FTS5 v${ai.index_version}</div><div class="k-sub">Sanitized: ${ai.sanitized_news_items_total} · DLQ: ${ai.dlq_messages_count}</div></div>
+        `;
+      } catch (e) {
+        document.getElementById("updated-at").textContent = "Poll failed: " + e;
+      }
+    }
+    loadObs();
+    setInterval(loadObs, 5000);
+  </script>
+</body>
+</html>
