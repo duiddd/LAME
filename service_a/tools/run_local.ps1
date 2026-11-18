@@ -51,6 +51,14 @@ $trees = [ordered]@{
 $ports = [ordered]@{ A = 8000; D = 8400; C = 8081; Frontend = 5173; B_md = 9999; B_ctrl = 11659; Postgres = 5432 }
 $dbUrl = "postgresql+asyncpg://lame:lame@127.0.0.1:5432/lame"
 
+# Native commands whose failure is expected (stopping what is not running, removing what is
+# absent). With ErrorActionPreference Stop, Windows PowerShell turns their stderr into an error.
+function Invoke-Quiet([scriptblock]$command) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { & $command 2>&1 | Out-Null } finally { $ErrorActionPreference = $saved }
+}
+
 function Say($text) { Write-Host "==> $text" -ForegroundColor Cyan }
 function Warn($text) { Write-Host "    $text" -ForegroundColor Yellow }
 
@@ -77,17 +85,17 @@ function Stop-All {
     Say "Stopping A, C, D and the frontend"
     if (Test-Path $pidFile) {
         foreach ($p in (Get-Content $pidFile | ConvertFrom-Json).PSObject.Properties) {
-            & taskkill /F /T /PID $p.Value 2>$null | Out-Null
+            Invoke-Quiet { taskkill /F /T /PID $p.Value }
         }
         Remove-Item $pidFile
     }
     # Processes left from a run without a pid file: only python or node on our own ports.
     foreach ($port in 8000, 8400, 8081, 5173) {
         $proc = Get-Listener $port
-        if ($proc -and $proc.ProcessName -in "python", "node") { & taskkill /F /T /PID $proc.Id 2>$null | Out-Null }
+        if ($proc -and $proc.ProcessName -in "python", "node") { Invoke-Quiet { taskkill /F /T /PID $proc.Id } }
     }
     Say "Stopping the B and PostgreSQL containers"
-    docker stop lame-b lame-pg 2>$null | Out-Null
+    Invoke-Quiet { docker stop lame-b lame-pg }
 }
 
 function Show-Status {
@@ -189,7 +197,7 @@ function Start-Containers($rebuildB) {
     } else { docker start lame-b | Out-Null }
 
     $end = (Get-Date).AddMinutes(2)
-    while ((docker exec lame-pg pg_isready -U lame 2>$null) -notmatch "accepting") {
+    while ((& { $ErrorActionPreference = "Continue"; docker exec lame-pg pg_isready -U lame 2>&1 }) -notmatch "accepting") {
         if ((Get-Date) -gt $end) { throw "PostgreSQL did not start" }
         Start-Sleep -Seconds 1
     }
@@ -265,8 +273,8 @@ function Start-All {
 function Reset-All {
     Stop-All
     Say "Erasing A's, B's, C's and D's data together"
-    docker rm -f lame-b lame-pg 2>$null | Out-Null
-    docker volume rm lame-pg-data lame-b-data 2>$null | Out-Null
+    Invoke-Quiet { docker rm -f lame-b lame-pg }
+    foreach ($volume in "lame-pg-data", "lame-b-data") { Invoke-Quiet { docker volume rm $volume } }
     Remove-Item -Recurse -Force (Join-Path $Workspace "d-data"), (Join-Path $Workspace "c-data.db") -ErrorAction SilentlyContinue
 }
 
