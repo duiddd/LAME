@@ -15,7 +15,7 @@
 | 换发 `POST /api/auth/refresh` | refresh cookie | 轮换 refresh token 并发放新的 access token |
 | 模拟充值 `POST /api/accounts/deposits` | `asset`、`amount`;Header `Idempotency-Key` | 立即入账 |
 | 下单 `POST /api/orders` | `symbol`、`side`(BUY / SELL)、`type`(LIMIT / MARKET)、`price`(仅限价单)、`qty`;Header `Idempotency-Key`(前端生成的 `client_order_id`) | 金额为十进制字符串,进入 A 后转为整数(D8) |
-| 改单 `PUT /api/orders/{order_id}` | 新的 `price` 和/或 `qty` | 沿用同一个 `order_id`(D24) |
+| 改单 `PUT /api/orders/{order_id}` | 新的剩余 `qty`(可增可减);不能改价格 | 沿用同一个 `order_id`(D24) |
 | 撤单 `DELETE /api/orders/{order_id}` | — | 经 D 发出 |
 | 查询 | 订单、成交、资产、K 线、行情摘要 | 只能查自己的订单和资产 |
 
@@ -324,7 +324,7 @@
 
 ### D24. 改单沿用同一个 order_id
 
-- **决策:** `PUT /api/orders/{order_id}` 以同一个 `order_id` 通过 `POST /v1/modifies` 把新的 `price` 和/或 `qty`(新的**剩余**数量)交给 D,由 D 转为撤单加新单。市价单、`PENDING`、`UNKNOWN` 状态的订单不能改单。D 目前回 `501`,此时 A 释放补冻结的部分并回 `MODIFY_UNAVAILABLE`。所需资金增加时,A 先补冻结差额再发送;所需资金减少时,收到改单成功的通知后才释放差额,因为确认之前旧订单仍可能按原数量成交。改单期间订单显示 `MODIFYING`;改单被拒时订单维持原样,补冻结的部分释放。
+- **决策:** 改单只改数量,不改价格(11-18 团队决定),数量可增可减。`PUT /api/orders/{order_id}` 只接受新的**剩余** `qty`,带价格的请求回 `422`;A 以同一个 `order_id` 通过 `POST /v1/modifies` 交给 D,不带价格(D 协议 2.3:不带即不变),由 D 转为撤单加新单。不再检查 ±10% 价格带(价格没变,挂单时已检查过),但仍检查数量与名目金额上限。市价单、`PENDING`、`UNKNOWN` 状态的订单不能改单。D 拒绝改单(例如 `501`)时,A 释放补冻结的部分并回 `MODIFY_UNAVAILABLE`。所需资金增加时,A 先补冻结差额再发送;所需资金减少时,收到改单成功的通知后才释放差额,因为确认之前旧订单仍可能按原数量成交。改单期间订单显示 `MODIFYING`;改单被拒时订单维持原样,补冻结的部分释放。
 - **理由:** 用户对「同一张订单」的认知不变,A 的订单表、历史记录与前端显示都只需要一个 ID。
 - **备选:** A 自行撤单 + 以新 `order_id` 下新单(不依赖 D 的改单接口)。实现时两种做法都保留,可通过配置切换,以便在团队讨论后快速调整。
 - **对 D 文档 2.3 的回答:**
@@ -403,7 +403,7 @@ A 以 D 与 B 目前的实现为准进行调整,以下事项都不要求队友�
 | 服务目前的行为 | A 的做法 |
 | --- | --- |
 | D 收到 `422` 后持续重发、不告警 | 由 A 的指标告警(D28) |
-| D 的 `/v1/modifies` 回 `501` | 回 `MODIFY_UNAVAILABLE`,释放补冻结的部分(D24) |
+| D 已实现改单(11-06),不带价格即保持原价 | A 只送新的数量(D24) |
 | D 的 `ts` 是生成通知的时间;B 的 `Trade` 没有时间戳 | K 线使用 D 的 `ts`(D22) |
 | B 的市价单没有价格上限,D 拒绝市价单带价格 | 市价买单以带上限的限价单发送,再撤销剩余(D11) |
 | B 的心跳重复相同的 `last_ms` | 新鲜度以收到消息的时间计算(D11) |

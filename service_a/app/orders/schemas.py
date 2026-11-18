@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 OrderStatus = Literal[
     "PENDING", "SENT", "UNKNOWN", "PROCESSING", "MODIFYING", "PARTIALLY_FILLED",
@@ -17,7 +17,13 @@ class OrderIn(BaseModel):
 
 
 class ModifyIn(BaseModel):
-    price: Optional[str] = None
+    """A modify changes the remaining quantity only, up or down; the price stays (team decision).
+
+    Extra fields are refused, so a client that still sends a price is told so instead of having
+    it silently ignored.
+    """
+
+    model_config = ConfigDict(extra="forbid")
     qty: str
 
 

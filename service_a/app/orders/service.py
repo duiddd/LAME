@@ -235,20 +235,21 @@ class OrdersService:
             raise AppError(409, "ORDER_NOT_MODIFIABLE", "This order cannot be modified now")
         sym = self._catalog.symbols[row.symbol]
         qty = rules.parse_qty(sym, body.qty)
-        price = rules.parse_price(sym, body.price) if body.price is not None else row.price
-        rules.check_limit(sym, price, self._prices.fresh(sym.symbol), self._settings.price_band)
-        rules.check_notional(sym, price, qty)
+        # The price does not change, so the price band does not apply again: the order already
+        # rests at a price that passed it. The value limit still does, since qty can grow.
+        rules.check_notional(sym, row.price, qty)
         if self._settings.modify_mode == "cancel_replace":
-            return await self._cancel_replace(user_id, row, sym, price, qty)
-        return await self._modify_at_d(row, sym, price, qty)
+            return await self._cancel_replace(user_id, row, sym, qty)
+        return await self._modify_at_d(row, sym, qty)
 
-    async def _cancel_replace(self, user_id: int, row, sym: Symbol, price: int, qty: int):
+    async def _cancel_replace(self, user_id: int, row, sym: Symbol, qty: int):
         """The alternative that needs no modify from D: the replacement is a new order (D24)."""
         await self.cancel(user_id, row.order_id)
-        body = OrderIn(symbol=sym.symbol, side=row.side, type="LIMIT", price=from_units(price, sym.price_decimals), qty=from_units(qty, sym.qty_decimals))
+        body = OrderIn(symbol=sym.symbol, side=row.side, type="LIMIT", price=from_units(row.price, sym.price_decimals), qty=from_units(qty, sym.qty_decimals))
         return await self.place(user_id, body, f"{row.client_order_id}:r{self._ids.order_id()}")
 
-    async def _modify_at_d(self, row, sym: Symbol, price: int, qty: int):
+    async def _modify_at_d(self, row, sym: Symbol, qty: int):
+        price = row.price
         asset = hold_asset(sym, row.side)
         restore_status = row.status
         async with self._engine.begin() as conn:
@@ -260,7 +261,8 @@ class OrdersService:
                 raise AppError(400, "INSUFFICIENT_BALANCE", "Not enough available funds")
             await repo.update(conn, row.order_id, self._clock.now_ms(), status="MODIFYING", modify_no=modify_no, held_amount=current.held_amount + extra)
             await self._views.emit_order(conn, await repo.get(conn, row.order_id))
-        reply = await self._d.modify(row.user_id, row.order_id, price, qty)
+        # No price: D's protocol 2.3 keeps the order's price when it is left out.
+        reply = await self._d.modify(row.user_id, row.order_id, None, qty)
         if reply.delivery is Delivery.ACK:
             return await self._fresh(row.order_id)
         # D did not take the modification: the old order stands and the extra hold goes back.

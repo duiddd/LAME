@@ -25,7 +25,7 @@ All amounts on the API are decimal strings; inside A they are integers (D8). Log
 | `/api/accounts/me` | `GET` | Available, held and total balance per asset (also the "holdings" tab) |
 | `/api/accounts/deposits` | `POST` | Simulated deposit: `asset`, `amount`, `Idempotency-Key` header. Credited at once (D26) |
 | `/api/orders` | `POST` | Place an order (section 7.1). Requires an `Idempotency-Key` header (the `client_order_id`). Answers `202`, or `503` when the request certainly did not reach D (section 10) |
-| `/api/orders/{order_id}` | `PUT` | Modify an order: new `price` and/or `qty`, same `order_id` (D24) |
+| `/api/orders/{order_id}` | `PUT` | Modify an order's remaining `qty`, up or down; the price cannot change; same `order_id` (D24) |
 | `/api/orders/{order_id}` | `DELETE` | Cancel an order |
 | `/api/orders` | `GET` | Open orders (`?status=open`) and order history |
 | `/api/orders/{order_id}` | `GET` | One order, including its fills |
@@ -176,14 +176,14 @@ The same transaction records B's `(day, seq)` for the trade and advances `notify
 
 ### 5.4 Modifying an order (D24)
 
-`PUT /api/orders/{order_id}` sends the new `price` and/or `qty` to D's `POST /v1/modifies` under the same `order_id`; D carries it out as a cancel and a new order at B. `qty` is the new **remaining** quantity. Sending changed content to `POST /v1/orders` would get `409`.
+`PUT /api/orders/{order_id}` takes only the new **remaining** `qty`, larger or smaller; the team decided on 11-18 that a modify does not change the price. A sends it to D's `POST /v1/modifies` under the same `order_id` without a price, which D's protocol (2.3) reads as unchanged; D carries it out as a cancel and a new order at B. A body that still carries a price is refused with `422`. Sending changed content to `POST /v1/orders` would get `409`.
 
-- The new values pass the same pre-checks as a new order.
-- If the new values need **more** funds, A holds the difference before sending. If they need **less**, the difference is released only after `MODIFY_RESULT` confirms the modification, because the old order may still fill at its old size until then.
+- The new quantity passes the size checks and the value limit. The price band is not checked again, since the price has not changed and already passed it.
+- If the new quantity needs **more** funds, A holds the difference before sending, and refuses the modify with `INSUFFICIENT_BALANCE` if it cannot. If it needs **less**, the difference is released only after `MODIFY_RESULT` confirms the modification, because the old order may still fill at its old size until then.
 - While a modification is pending, the order shows `MODIFYING`; a rejected modification leaves the order as it was and releases any extra hold.
 - A trade that arrives while `MODIFYING` settles at the old hold price, which stays in effect until `MODIFY_RESULT`.
 - Market orders cannot be modified, and neither can an order that is `PENDING` or `UNKNOWN`, because a resend must carry identical content.
-- D answers `501` today. A then releases any extra hold and answers `MODIFY_UNAVAILABLE`. A's alternative, cancel plus a new `order_id`, stays available through configuration (D24).
+- If D refuses the modify (for example `501`), A releases any extra hold and answers `MODIFY_UNAVAILABLE`. A's alternative, cancel plus a new `order_id` at the same price, stays available through configuration (D24).
 
 A's answers to the questions in D's protocol document (2.3):
 
@@ -424,7 +424,7 @@ A adapts to what D and B implement today; nothing here requires them to change. 
 | What the service does | What A does |
 | --- | --- |
 | D keeps resending after `422` and does not alert | A's metrics raise the alert (section 12) |
-| D's `/v1/modifies` answers `501` | `MODIFY_UNAVAILABLE`, extra hold released (section 5.4) |
+| D implements modify (11-06) and keeps the price when none is sent | A sends the new quantity only (section 5.4) |
 | D's `ts` is its generation time; B's `Trade` carries no timestamp | Candles use D's `ts`. Trades that arrive after an A outage land correctly; those after a D–B outage are bunched (D22) |
 | B's market orders have no price cap, and D refuses a price on them | A sends a market buy as a capped limit order and cancels the remainder (section 7.3) |
 | B's heartbeat repeats `last_ms` | Freshness is measured from receipt, not from `last_ms` (section 7.2) |

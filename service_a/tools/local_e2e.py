@@ -113,13 +113,18 @@ async def main():
         o = await bob.wait(self_buy.json()["order_id"], lambda o: o["status"] == "REJECTED")
         check("D rejects a self-trade; hold released", o.get("reason") == "SELF_TRADE" and float((await bob.bal("USDT"))["held"]) == 0, o)
 
-    # Modify (D implemented it on 11-06): lower the remaining quantity and change the price.
-    m = await bob.c.put(f"/api/orders/{sid}", json={"price": px(-5000), "qty": "0.500"})
-    check("modify accepted (202)", m.status_code == 202, m.text)
-    if m.status_code == 202:
+    # Modify changes the remaining quantity only, down or up; the price stays (team decision).
+    priced = await bob.c.put(f"/api/orders/{sid}", json={"price": px(-5000), "qty": "0.500"})
+    check("a modify that changes the price is refused (422)", priced.status_code == 422, priced.text)
+    for remaining in ("0.500", "0.600"):
+        m = await bob.c.put(f"/api/orders/{sid}", json={"qty": remaining})
+        check(f"modify to {remaining} accepted (202)", m.status_code == 202, m.text)
+        if m.status_code != 202:
+            continue
         o = await bob.wait(sid, lambda o: o["status"] != "MODIFYING", 12)
         held = (await bob.bal("BTC"))["held"]
-        check("modify applied: new price, remaining 0.500, hold follows", o["price"] == px(-5000) and o["status"] == "PARTIALLY_FILLED" and held == "0.500", {"order": o, "held": held})
+        check(f"modify applied: remaining {remaining}, same price, hold follows",
+              o["price"] == px(-10000) and o["status"] == "PARTIALLY_FILLED" and held == remaining, {"order": o, "held": held})
 
     c = await bob.c.delete(f"/api/orders/{sid}")
     check("cancel accepted", c.status_code == 202, c.text)

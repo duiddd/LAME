@@ -1145,27 +1145,18 @@
       },
       "ModifyIn": {
         "properties": {
-          "price": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Price"
-          },
           "qty": {
             "type": "string",
             "title": "Qty"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "qty"
         ],
-        "title": "ModifyIn"
+        "title": "ModifyIn",
+        "description": "A modify changes the remaining quantity only, up or down; the price stays (team decision).\n\nExtra fields are refused, so a client that still sends a price is told so instead of having\nit silently ignored."
       },
       "OrderDetailOut": {
         "properties": {

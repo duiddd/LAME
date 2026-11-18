@@ -20,11 +20,13 @@
 | test_open_breaker_refuses_before_holding | Fail fast | Open breaker -> 503, nothing written |
 | test_only_owner_sees_order | Users are isolated | Another user -> 404 for read and cancel |
 | test_cancel_is_sent_and_final_refused | Cancelling | DELETE -> cancel at D; finished order -> 409 |
-| test_modify_unavailable_restores | D answers 501 today | 501 -> MODIFY_UNAVAILABLE, status and hold restored |
-| test_modify_up_holds_first | No modify without funds | More funds held before sending; MODIFY_RESULT keeps them |
+| test_modify_unavailable_restores | D refuses or lacks modify | 501 -> MODIFY_UNAVAILABLE, status and hold restored |
+| test_modify_cannot_change_price | A modify changes the quantity only | A body with a price -> 422, nothing sent to D |
+| test_modify_up_holds_first | No modify without funds | Larger qty: the difference is held before sending, D gets no price |
+| test_modify_up_refused_without_funds | Growing an order is still bounded by the balance | Larger qty than funds allow -> INSUFFICIENT_BALANCE, order unchanged |
 | test_modify_down_releases_only_after_the_result | The old size can still fill | Hold unchanged until MODIFY_RESULT |
 | test_modify_result_without_price_keeps_it | D may leave out an unchanged price | price null -> old price stays |
-| test_cancel_replace_mode | The alternative that needs no modify from D | Mode on -> old order cancelled, a new order placed |
+| test_cancel_replace_mode | The alternative that needs no modify from D | Mode on -> old order cancelled, a new order at the same price |
 | test_modify_refused_for_market_and_unknown | A resend must be identical | Market or UNKNOWN -> 409 |
 """
 import pytest
@@ -223,25 +225,47 @@ async def test_modify_unavailable_restores(client, container, fake_d, market):
     order_id = (await place(client)).json()["order_id"]
     await Notifier(client).accepted(order_id)
     fake_d.modify_reply = Reply(Delivery.NOT_IMPLEMENTED)
-    r = await client.put(f"/api/orders/{order_id}", json={"price": "51000.00", "qty": "1.000"})
+    r = await client.put(f"/api/orders/{order_id}", json={"qty": "1.200"})
     assert r.status_code == 501 and r.json()["reason"] == "MODIFY_UNAVAILABLE"
     row = await order_row(container, order_id)
     assert row.status == "PROCESSING" and row.held_amount == 5000000000
     assert (await balance(client, "USDT"))["held"] == "50000.00000"
 
 
-async def test_modify_up_holds_first(client, container, market):
-    # Purpose: more funds are held before sending; the result fixes the price and hold.
+async def test_modify_cannot_change_price(client, fake_d, market):
+    # Purpose: the team agreed that a modify changes the quantity only.
+    await funded_user(client)
+    order_id = (await place(client)).json()["order_id"]
+    await Notifier(client).accepted(order_id)
+    r = await client.put(f"/api/orders/{order_id}", json={"price": "51000.00", "qty": "1.000"})
+    assert r.status_code == 422 and r.json()["reason"] == "INVALID_REQUEST"
+    assert fake_d.modifies == []
+
+
+async def test_modify_up_holds_first(client, container, fake_d, market):
+    # Purpose: a larger order holds the difference before D hears of it, at the unchanged price.
     await funded_user(client)
     order_id = (await place(client)).json()["order_id"]
     n = Notifier(client)
     await n.accepted(order_id)
-    r = await client.put(f"/api/orders/{order_id}", json={"price": "51000.00", "qty": "1.000"})
+    r = await client.put(f"/api/orders/{order_id}", json={"qty": "1.200"})
     assert r.status_code == 202 and r.json()["status"] == "MODIFYING"
-    assert (await balance(client, "USDT"))["held"] == "51000.00000"
-    await n.send("MODIFY_RESULT", order_id, result="APPLIED", price=5100000, qty=1000)
+    assert (await balance(client, "USDT"))["held"] == "60000.00000"
+    assert fake_d.modifies == [{"order_id": order_id, "price": None, "qty": 1200}]
+    await n.send("MODIFY_RESULT", order_id, result="APPLIED", price=5000000, qty=1200)
     row = await order_row(container, order_id)
-    assert row.status == "PROCESSING" and row.hold_price == 5100000
+    assert row.status == "PROCESSING" and row.qty == 1200 and row.held_amount == 6000000000
+
+
+async def test_modify_up_refused_without_funds(client, container, fake_d, market):
+    # Purpose: growing an order cannot overdraw; the order stays as it was.
+    await funded_user(client, usdt="55000")
+    order_id = (await place(client)).json()["order_id"]
+    await Notifier(client).accepted(order_id)
+    r = await client.put(f"/api/orders/{order_id}", json={"qty": "1.200"})
+    assert r.status_code == 400 and r.json()["reason"] == "INSUFFICIENT_BALANCE"
+    row = await order_row(container, order_id)
+    assert row.status == "PROCESSING" and row.held_amount == 5000000000 and fake_d.modifies == []
 
 
 async def test_modify_down_releases_only_after_the_result(client, market):
@@ -250,7 +274,7 @@ async def test_modify_down_releases_only_after_the_result(client, market):
     order_id = (await place(client)).json()["order_id"]
     n = Notifier(client)
     await n.accepted(order_id)
-    await client.put(f"/api/orders/{order_id}", json={"price": "50000.00", "qty": "0.500"})
+    await client.put(f"/api/orders/{order_id}", json={"qty": "0.500"})
     assert (await balance(client, "USDT"))["held"] == "50000.00000"
     await n.send("MODIFY_RESULT", order_id, result="APPLIED", price=5000000, qty=500)
     assert (await balance(client, "USDT"))["held"] == "25000.00000"
@@ -274,8 +298,9 @@ async def test_cancel_replace_mode(client, container, fake_d, market):
     await funded_user(client)
     order_id = (await place(client, qty="0.100")).json()["order_id"]
     await Notifier(client).accepted(order_id)
-    r = await client.put(f"/api/orders/{order_id}", json={"price": "50100.00", "qty": "0.100"})
-    assert r.status_code == 202 and r.json()["order_id"] != order_id and r.json()["price"] == "50100.00"
+    r = await client.put(f"/api/orders/{order_id}", json={"qty": "0.200"})
+    assert r.status_code == 202 and r.json()["order_id"] != order_id
+    assert r.json()["price"] == "50000.00" and r.json()["qty"] == "0.200"
     assert fake_d.cancels == [order_id] and fake_d.modifies == []
 
 
@@ -286,5 +311,5 @@ async def test_modify_refused_for_market_and_unknown(client, fake_d, market):
     fake_d.place_replies = [Reply(Delivery.UNKNOWN)]
     unknown_id = (await place(client, key="u", qty="0.100")).json()["order_id"]
     for order_id in (market_id, unknown_id):
-        r = await client.put(f"/api/orders/{order_id}", json={"price": "50000.00", "qty": "0.100"})
+        r = await client.put(f"/api/orders/{order_id}", json={"qty": "0.200"})
         assert r.status_code == 409 and r.json()["reason"] == "ORDER_NOT_MODIFIABLE"
