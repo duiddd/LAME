@@ -1,0 +1,11 @@
+# The frontend, written to be included by the root compose file next to service_a/docker-compose.yml.
+# nginx serves the build on port 3000 and forwards /api to service-a:8000 on the project network.
+# The browser reaches B (port 9999) and C (port 8080) directly, so those must be published by
+# B's and C's compose files.
+services:
+  frontend:
+    build: .
+    container_name: lame-frontend
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
