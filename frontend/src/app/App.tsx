@@ -5,6 +5,7 @@ import { DepositDialog } from "../features/account/DepositDialog";
 import { AnalystPage } from "../features/analyst/Panels";
 import { LoginPage } from "../features/auth/LoginPage";
 import { useAuth } from "../features/auth/useAuth";
+import { DashboardPage } from "../features/observability/DashboardPage";
 import { useUserStream } from "../features/orders/useOrders";
 import { Logo } from "./Logo";
 import { TradePage } from "./TradePage";
@@ -33,6 +34,9 @@ function Shell() {
         </NavLink>
         <NavLink to="/news-analyst" className={navClass}>
           News & Analyst
+        </NavLink>
+        <NavLink to="/dashboard" className={navClass}>
+          Dashboard
         </NavLink>
         <div className="ml-auto flex items-center gap-4">
           {user ? (
@@ -70,6 +74,7 @@ export function App() {
             <Route path="/trade/:symbol" element={<TradePage />} />
             <Route path="/trade" element={<Navigate to="/trade/BTC-USDT" replace />} />
             <Route path="/news-analyst" element={<AnalystPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="*" element={<Navigate to="/trade/BTC-USDT" replace />} />
           </Route>
         </Routes>
