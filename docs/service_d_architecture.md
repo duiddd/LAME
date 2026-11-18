@@ -1,67 +1,68 @@
 # Service D: Risk Control — Architecture
 
-**Owner:** Zongyan Yang · **The one question it answers:** Should this order be allowed? · **Status:** draft, for team discussion
+**Owner:** Zongyan Yang · **The one question it answers:** Should this order be let through? · **Status:** draft, updated on 2026-11-06 after the team discussion and after reading A's and B's latest code (A's `feature/trading`, B's `resume_ok`).
 
-This document describes the design of Service D. The reason for each choice is recorded in [service_d_tech_decisions.md](service_d_tech_decisions.md) (decision IDs RD1, RD2, …; the R prefix avoids confusion with the D1, D2 IDs in the B and C documents). The interfaces are in [service_d_protocol.md](service_d_protocol.md).
+This document describes the design of Service D. The reason behind each choice is in [service_d_tech_decisions.md](service_d_tech_decisions.md) (decision IDs RD1, RD2, …; the R prefix avoids confusion with D1, D2 in the A, B and C documents). The interfaces are in [service_d_protocol.md](service_d_protocol.md).
 
 ## 1. Role and scope
 
-D is the risk gate between A and B. For every order A hands over, D either forwards it to B or rejects it back to A. D is entirely rule-based: the same inputs always give the same decision, and no AI is involved. D sits on the order path, so its latency and availability affect order placement for the whole exchange.
+D is the risk gate between A and B. For every order from A, D either lets it through to B or rejects it. D is purely rule-based: the same input always gives the same decision, and no AI is used. D is on the critical path of order placement, so its latency and availability affect order placement for the whole exchange.
 
-- **In scope:** two rules (self-trade, wash trading); trader features built from B's outputs; idempotent decisions and forwarding; rule versioning; failing closed; passing A's cancels to B and controlling when they are sent (section 7); rule evaluation; failure-injection scripts and runbook; leading the ADR for the synchronous risk gate.
-- **Out of scope:** forwarding B's events to A (A subscribes to B directly, RD6); AI or machine learning; a human review queue; balance, size-limit and rate-limit checks (A); matching (B); news and Q&A (C); automatic account suspension; liquidation and overnight margin checks (stretch goal, not in the core, RD20).
+- **In scope:**
+  - Two rules (self-trade, wash trade); trader features built from B's outputs; versioned rules; failing closed.
+  - Taking A's orders, cancels and modifies idempotently; the synchronous reply only means "received" (RD11).
+  - Notifying A of the risk decision and of all of B's results, **in order and reliably** (RD6, RD25).
+  - Translating between A's ULID and B's integer order IDs (RD24).
+  - A status query by `order_id` for A's reconciliation (RD26).
+  - Turning a modify into "cancel + new order" (RD27).
+  - Making sure every order reaches a final state (automatic cancel after a timeout, section 7).
+  - Rule evaluation; failure-injection scripts and runbook (shared work in the proposal); leading the ADR for the synchronous risk gate.
+- **Out of scope:** AI or machine learning; a human review queue; balance, order-size and rate-limit checks, and load shedding (A); matching and trading hours (B); news and Q&A (C); automatic account suspension; forced liquidation and overnight margin (a stretch goal, not in the core, RD20).
 
 ## 2. Relationship with the other services
 
 ```
-              ① HTTP: place order, cancel
-   A ───────────────────────────────► D ══════ ② WS /d (commands + B's outputs) ══════ B
-   ▲                                  │                                               │
-   │  ④ HTTP: linked accounts (at D's start-up)                                       │
-   └──────────────────────────────────┘                                               │
-   ▲                                                                                  │
-   └═════════════ ③ WS: B's event subscription (read-only, A connects to B directly) ═┘
+              ① HTTP: place, cancel, modify (the synchronous reply only means "received")
+              ④ HTTP: query by order_id
+   A ─────────────────────────────────► D ══════ ② WS /d (commands + all of B's outputs) ══════ B
+   ▲                                    │
+   └──────── ③ HTTP: notify every outcome ┘
 
+   Shared config files: linked accounts, trading pairs (read by A, B and D)
    C: no business data with D; Prometheus scrapes D's /metrics
 ```
 
 | Link | Method | Content |
 | --- | --- | --- |
-| ① A → D | HTTP + JSON | Place order, cancel |
-| ② D ↔ B | WebSocket + JSON (B document sections 2 and 6) | D sends commands; B sends all its outputs to D, which uses them for features and to match replies |
-| ③ B → A | WebSocket + JSON, read-only subscription | A gets `OrderEvent` / `Trade` directly from B for settlement; D is not involved |
-| ④ D → A | HTTP + JSON | D loads linked accounts at start-up |
+| ① A → D | HTTP + JSON | Place, cancel, modify. D answers 202 for "received" and 503 for "not taken" |
+| ② D ↔ B | WebSocket + JSON (B's `runtime.md`) | D sends commands; B sends all of its outputs to D |
+| ③ D → A | HTTP + JSON, A's `POST /internal/order-events` | Risk rejections, B's acceptance, trades, state changes, cancel results, modify results. With a contiguous `notify_seq`, sent in order, resent until A acknowledges |
+| ④ A → D | HTTP + JSON | A queries an order's state during reconciliation |
 
-**B sends events to A directly (RD6).** In B's current design (B document D13), B talks only to D, and A's events have to be forwarded by D. We propose that B also offers a **read-only event subscription** that A connects to directly, using the same resume handshake as D. Reasons:
+**D forwards B's events to A (RD6).** An earlier draft suggested that B give A a read-only subscription. But both A's and B's documents have D forwarding, and B's implementation only allows one `/d` connection. So the design is now: for every output from B, D translates it to A's order ID and sends it to A as a notification. The cost is that while D is down, A's settlement also pauses and funds stay frozen. This goes into the ADR.
 
-- "How fills reach A" is not a risk question, so D should not own it.
-- If D forwards events, settlement stops for orders that have already traded whenever D is down. With a direct subscription, a D outage only affects new orders.
-- D does not need to keep a second copy of B's outputs or implement resume a second time.
-- It matches the original proposal ("A, C and D each consume B's events").
-- B can already resend from its event store by seq (B document D21), so adding one more read-only subscriber is a small change.
-
-**Commands still go only through D (RD7).** B has only one command entry, which is D, so A's orders and cancels both pass through D. Cancels are not checked against the rules, but D controls when they are sent (section 7).
+**Commands go only through D (RD7).** B has only one command entry, which is D, so A's orders, cancels and modifies all pass through D. Cancels are not checked against the rules, but D controls when they are sent (section 7).
 
 ## 3. Rules
 
 Both rules are pure functions `decide(order, feature snapshot, rule version) → allow / reject (reason)` (RD1).
 
-Notation: the **linked group** G(u) of user u is u plus every account linked to u; if u has no linked accounts, G(u) = {u}. For a given symbol, u's **opposite-side orders** are u's orders on the other side that are **resting in B's book**, plus **in-flight orders** that D has approved and B has not yet answered (RD4).
+Notation: the **linked group** G(u) of user u is u and all accounts linked to it; with no linked accounts, G(u) = {u}. For a trading pair, u's **opposite orders** are u's orders on the other side that are **resting in B's book**, plus **orders D has approved that B has not answered yet** (in flight, RD4).
 
 ### R1 Self-trade (SELF_TRADE)
-Reject a new order if it could trade against an opposite-side order of u **itself**.
+Reject a new order if it could trade against one of u's **own** opposite orders.
 
-- **Limit buy (price P):** reject if u has a resting sell at a price ≤ P. For a limit sell, the opposite: u has a resting buy at a price ≥ P.
-- **Market order (quantity Q):** simulate filling Q on D's book view in price-time order; reject if the walk reaches one of u's own orders.
+- **Limit buy at price P:** reject if u has a resting sell at a price ≤ P. A limit sell is the mirror case: u has a resting buy at a price ≥ P.
+- **Market order for quantity Q:** simulate filling it against D's book view in price-time priority until Q is used up; reject if it reaches one of u's own orders on the way.
 
-Limit orders are judged by "do the prices cross". This is conservative, but it is simple, easy to explain, and does not depend on the accuracy of other users' orders in the book view. Market orders have no price, so they must be simulated (RD3).
+Limit orders are judged by whether the prices cross. This is conservative, but it is simple, easy to explain, and does not depend on the other orders in the book view being exact. Market orders have no price, so they can only be simulated (RD3).
 
-D's check is best-effort: there is always a gap between in-flight orders and B's actual state. The proposal says B's matcher is the atomic backstop, but **B's document does not include it**, so this needs to be confirmed with Bo (section 15).
+D's check is best effort: there is always some lag between in-flight orders and B's real state. B's matcher has an atomic backstop (B document D24): when an order meets a resting order of the same `user_id`, B cancels the rest of the incoming order with reason `SELF_TRADE_PREVENTED`. D forwards this to A as an ordinary cancel result.
 
 ### R2 Wash trading (WASH_TRADE)
-The same check as R1, but "u itself" is replaced by "the accounts in G(u) other than u" (RD2). The linked group is treated as one trader for the self-trade check. A user with no linked accounts can never trigger R2.
+The same check as R1, but with "u itself" replaced by "the accounts in G(u) other than u" (RD2). The linked group is treated as one trader for the self-trade check. A user with no linked accounts never triggers R2. B's backstop only compares `user_id` and ignores linked accounts, so only D does R2.
 
-Optional extension (not in the v1 rules): if accounts in a linked group trade with each other k times within a window W, raise the blocking level. Whether to enable it depends on the evaluation results.
+Optional extension (not in the v1 rules): after k trades inside a linked group within a window W, raise the level of blocking. Whether to enable it depends on the evaluation.
 
 ### Evaluation order and reason codes
 R1 first, then R2; stop at the first match.
@@ -71,182 +72,198 @@ R1 first, then R2; stop at the first match.
 | `SELF_TRADE` | R1 matched |
 | `WASH_TRADE` | R2 matched |
 | `RISK_TIMEOUT` | No decision within `GATE_DEADLINE` |
-| `RISK_UNAVAILABLE` | D is not ready (section 8) |
 | `CANCELLED_BEFORE_SUBMIT` | A cancel for this order ID arrived earlier (RD14) |
+
+When D is not ready or its decision queue is full, the order never enters D: D replies 503 `RISK_UNAVAILABLE` / `RISK_BUSY` at once. This is not a rejection (section 8).
 
 ## 4. Internal structure
 
-D is one Python process (FastAPI + uvicorn, **a single worker**) and runs as a single instance (RD19). It must be a single instance because B accepts only one D connection at a time and D keeps its state in memory.
+D is one Python process (FastAPI on uvicorn, **a single worker**), running as one instance (RD19). It must be a single instance because B accepts only one D connection at a time, and D's state is in memory.
 
 ```
-A ──HTTP──► [API layer] ──► [decision queue] ──► [decision task] ──reads──► [features / book view]
-               │                                      │                            ▲
-               │ cancel                               │ decision record            │ B's outputs
-               ▼                                      ▼                            │
-        [cancel scheduler] ──────────────────► [writer thread] ──► SQLite d.db     │
-               │                                      │ after commit               │
-               │                                      ▼                            │
-               └──────────────────────────────► [B connector] ══ WS /d ════════════╪══► B
-                                                      ▲                            │
-                                                      └────────────────────────────┘
+A ──HTTP──► [API layer] ──202──► A
+               │ new orders / modifies                cancels
+               ▼                                        ▼
+          [decision queue] ──► [decision task] ──read──► [features / book view] ◄── B's outputs
+                                     │                        ▲
+                                     │ decision, b_order_id   │
+                                     ▼                        │
+         [cancel scheduler] ──► [store] ──► SQLite d.db       │
+               │                  │ after commit              │
+               ▼                  ▼                           │
+          [B connector] ══════ WS /d ═════════════════════════╪══► B
+               │                                              │
+               └── B's outputs ──► [notification builder] ──► outbox (d.db) ──► [notification sender] ──HTTP──► A
 ```
 
-- **API layer:** validates requests and checks idempotency; puts new orders into the decision queue and waits for the result; hands cancels to the cancel scheduler.
-- **Decision task:** one asyncio task that processes the decision queue in order, so D's decisions have a total order (RD10). Rule checks read memory only and do no I/O.
-- **Writer thread:** a dedicated thread, the only writer of SQLite. A decision is committed before it is sent (RD8).
-- **Cancel scheduler:** decides when a cancel is sent to B, following the rules in section 7.
-- **B connector:** keeps the single WebSocket connection to B, does the resume handshake, deduplicates by `seq` and checks gaps with `prev_seq`; uses B's outputs to update the features and to wake up order requests that are waiting for a reply.
+- **API layer:** validates requests and checks idempotency; stores a new order as `RECEIVED`, puts it into the decision queue and replies 202 at once; replies 503 when the queue is full or D is not ready; hands cancels to the cancel scheduler; answers queries.
+- **Decision task:** one asyncio task that takes orders from the decision queue one by one, so D's decisions have a total order (RD10). The rules read only memory and do no I/O.
+- **Store:** one SQLite connection, read and written synchronously inside the event loop (each call takes well under a millisecond). The process has only this one connection, so it is the only writer. Decisions, `b_order_id`s and generated notifications are committed before they are sent (RD8).
+- **Cancel scheduler:** decides when each cancel is sent to B, following section 7, including the automatic cancels for timed-out orders.
+- **B connector:** keeps the single WebSocket to B; does the resume handshake, deduplicates by `(day, seq)`, applies outputs in chain order and decides when D has caught up; updates the features from B's outputs.
+- **Notification builder:** translates each output from B to A's order ID, builds the matching notification, and writes it to the outbox together with "how far into B's outputs D has got" (in the same transaction).
+- **Notification sender:** one asyncio task that sends notifications to A one by one in `notify_seq` order, and sends the next only after A answers 2xx; handles `409 expected_seq` (RD25).
 
 ## 5. State and storage
 
-One SQLite file `/data/d.db` in WAL mode, on a named volume. D does **not** keep a copy of B's outputs (RD15). Sketch of the tables (not final):
+One SQLite file `/data/d.db` in WAL mode, on a named volume. D does **not** keep a copy of B's outputs (RD15), but it keeps the notifications built from them. Tables:
 
 | Table | Main fields | Purpose |
 | --- | --- | --- |
-| `decisions` | `decision_no` (D's own counter), `user_id`, `order_id`, order content, `decision`, `reason`, `rule_version`, `features_seq`, `decided_at`, `sent_at` | Idempotency, audit, replay (RD9) |
-| `cancel_intents` | `user_id`, `order_id`, `received_at`, `sent_to_b_at` | Cancel intents and D's local tombstones (RD14) |
-| `links` | `version`, `group_id`, `user_id` | Linked accounts loaded from A at start-up (RD17) |
+| `orders` | `user_id`, `order_id`, order content, `state`, `filled_qty`, `received_at` | A's orders and their state inside D; idempotency; queries |
+| `decisions` | `decision_no` (D's own counter), `order_id`, `decision`, `reason`, `rule_version`, `features_seq`, `decided_at` | Audit, replay (RD9) |
+| `b_orders` | `b_order_id` (D's global counter), `order_id`, `user_id`, `sent_at`, `b_day`, `order_seq` | The ID map; after a modify, one `order_id` has several rows (RD24) |
+| `cancels` | `order_id`, `user_id`, `origin` (A or TIMEOUT), `tombstone`, `b_order_id`, `send_not_before`, `sent_at`, `result` | Cancel intents, automatic cancels and tombstones (RD13, RD14) |
+| `outbox` | `notify_seq`, `order_id`, `type`, `payload` | The outbox (RD25) |
+| `meta` | `b_cursor` (the `(day, seq)` of the last B output that was turned into notifications), `delivered_seq` (the last notification A acknowledged) | No duplicate notifications built or sent after a restart |
 
-In-memory state:
+State in memory:
 
-- **Book view:** per symbol, `order_seq → (user_id, side, price, remaining)`. Price and side come from D's own decision records (every order that reaches B passes through D); the remaining quantity comes from B's `OrderEvent` (RD5).
-- **In-flight orders:** orders D has approved that have not yet received their first `OrderEvent` from B.
-- **Order state inside D** (section 6), used by the cancel scheduler.
-- **Linked groups:** `user_id → group_id`.
+- **Book view:** per trading pair, `order_seq → (user_id, side, price, remaining)`. The price and side come from D's own records (every order that enters B passes through D), and the remaining quantity from B's `order_event`s (RD5).
+- **In-flight orders:** orders D has approved that have no output from B yet.
+- **Linked groups:** `user_id → group`, read from the shared file at start-up.
 
-**Recovery after a restart:** D reads back its decisions and cancel intents from `d.db`, then sends `{"type":"resume","from_seq":0}` to B and re-applies the day's outputs from the first one to rebuild the book view. At course scale the day's output is small, so this is fast.
+**Recovery after a restart:**
 
-At the end of the day (after B sends the `END_OF_DAY` cancels), the book view and the in-flight orders become empty on their own; linked groups and past decisions are kept.
+1. Read the orders, decisions, ID map, cancel intents, outbox and cursors back from `d.db`.
+2. Send `{"type":"resume","from_seq":0}` to B and apply again from the first output of the day, rebuilding the book view.
+3. During the replay, outputs up to the cursor only update the features and build no notifications; later outputs build notifications as usual.
+4. D is ready only after catching up (section 8). Unacknowledged notifications in the outbox continue to be sent to A.
+
+At course scale the day's outputs are small, so the rebuild is fast (to be measured in the load test).
+
+At the end of the day (after B's `END_OF_DAY` cancels), the book view and in-flight orders empty naturally; linked groups, past decisions and the outbox are kept.
 
 ## 6. Order states inside D
 
 ```
-                    ┌──► REJECTED_BY_D (final; guaranteed never sent to B)
-RECEIVED ──decide────┤
-                    └──► IN_FLIGHT ──B's first OrderEvent──► LIVE ──► FILLED / CANCELLED (final)
-                              │                         └──► REJECTED_BY_B (final, incl. EXPIRED)
-                              │ no reply within D_TIMEOUT
-                              ▼
-                          TIMED_OUT ──B's event arrives later──► LIVE / REJECTED_BY_B
-                              │ cancel answered with ORDER_NOT_FOUND
-                              ▼
-                       NEVER_REACHED_B (final)
+                       ┌──► REJECTED_BY_D (final; guaranteed never sent to B)
+RECEIVED ──decision─────┤
+                       └──► IN_FLIGHT ──B's first output──► LIVE ──► FILLED / CANCELLED (final)
+                                 │                      │   └──► REJECTED_BY_B (final, incl. EXPIRED)
+                                 │ no output within      │
+                                 │ D_TIMEOUT             └──modify──► MODIFYING ──► LIVE (new b_order_id)
+                                 ▼
+                             TIMED_OUT ──output arrives later──► LIVE / REJECTED_BY_B
+                                 │ automatic cancel gets ORDER_NOT_FOUND, and no output was ever seen
+                                 ▼
+                          NOT_DELIVERED (final)
 
 (cancel arrives before the order) CANCEL_TOMBSTONE ──order arrives──► REJECTED_BY_D (CANCELLED_BEFORE_SUBMIT)
 ```
 
-These states are used only inside D to decide when to send cancels. A decides an order's fate from the records it receives on its own subscription to B (protocol document section 6).
+The state is returned to A by the query endpoint (protocol document 2.4). A decides an order's fate from D's notifications.
 
 ## 7. Timeouts and order fate
 
-The order-fate protocol in the proposal relies on B's "lookup by ID" and "tombstone", and B has neither. What B does have: a `NewOrder` carries `sent_at`, and when B records `ts`, it answers `REJECTED(EXPIRED)` if `ts − sent_at > MAX_COMMAND_AGE` (B document D15). D uses this to get the same effect as a tombstone (RD13):
+B has no "lookup by ID" and no "tombstone". What B has is this: a `new_order` carries `sent_at`, and when B records it with `ts`, it answers `REJECTED(EXPIRED)` if `ts − sent_at > MAX_COMMAND_AGE` (B document D15). In B's implementation `MAX_COMMAND_AGE` is **1000 ms**, fixed at build time. D uses this to get the effect of a tombstone (RD13):
 
-1. When D sends a `NewOrder`, it records `sent_at` and waits for B's first `OrderEvent` for that order, for at most `D_TIMEOUT` (we require `D_TIMEOUT ≥ MAX_COMMAND_AGE`).
-2. If the reply arrives, D returns B's result to A. If not, D returns `UNKNOWN` and the order becomes `TIMED_OUT`. **This is not a rejection; A must keep the hold.**
-3. If A later cancels this order, D waits until `sent_at + MAX_COMMAND_AGE + CANCEL_MARGIN` has passed before sending the cancel to B.
-4. B can then reply in only three ways, and A sees the reply on its own subscription:
-   - `CANCELLED`: the order was on the book and is now cancelled.
-   - `REJECTED(ORDER_ALREADY_FINAL)`: the order was already fully filled or cancelled; the fills are the record.
-   - `REJECTED(ORDER_NOT_FOUND)`: **the order never reached B and never will.** The age limit has passed, so even if this `NewOrder` reaches B later, B will answer `EXPIRED`.
-5. D and B run on the same host, so their clocks can be compared. B's D15 already depends on this. `CANCEL_MARGIN` is a safety margin.
+1. When D sends a `new_order`, it records `sent_at`. If an output for the order arrives within `D_TIMEOUT` (≥ 1000 ms), the order becomes `LIVE`.
+2. If not, the order becomes `TIMED_OUT`. B's document requires D to cancel after a timeout, so D sends `cancel_order` **automatically** after `sent_at + MAX_COMMAND_AGE + CANCEL_MARGIN`. **A's hold stays in place meanwhile.**
+3. If an output for the order arrives before the cancel is sent (B was only slow), the automatic cancel is dropped.
+4. B's answer:
+   - `CANCELLED`: the order was on the book and is now cancelled. A gets `ORDER_UPDATE CANCELLED` with reason `D_TIMEOUT`.
+   - `REJECTED(ORDER_NOT_FOUND)`: B's implementation does not tell "never arrived" from "already final", so D decides itself. If D has received outputs for the order, it is final and those outputs stand. If not, **the order never reached B and never will** (the age limit has passed, so a late `new_order` would get `EXPIRED`), and A gets `ORDER_UPDATE REJECTED` with reason `NOT_DELIVERED`.
+5. While D is disconnected from B, automatic cancels wait. After reconnecting and catching up, D checks again: if it has seen outputs for the order by then, it does not cancel.
+6. D and B run on the same host, so their clocks can be compared. B's D15 already relies on this. `CANCEL_MARGIN` is a safety margin.
 
-For an order B has already confirmed (`LIVE`), the cancel is sent at once, without waiting.
+Cancels from A: for an order that is already `LIVE`, the cancel is sent to B at once; for an `IN_FLIGHT` / `TIMED_OUT` order, it also waits until after the age limit.
 
-D also guarantees: **an order that D answers with `REJECTED` is never sent to B** (RD12). So A can release the hold as soon as D rejects.
+D also guarantees that **an order D rejected is never sent to B** (RD12). So A can release the hold as soon as it receives `RISK_REJECTED`.
+
+As long as D is running, every order reaches a final state: decisions have `GATE_DEADLINE`, and orders sent to B have the automatic cancel. A only waits indefinitely while D is down.
 
 ## 8. Readiness and failing closed
 
-D forwards orders only when it is **ready**; otherwise it answers `RISK_UNAVAILABLE` (RD16). Ready means all of:
+D takes new orders only when it is **ready**; otherwise it replies 503 `RISK_UNAVAILABLE` at once and keeps no record (RD16). Ready means all of:
 
-1. The linked accounts have been loaded from A.
+1. The linked accounts and trading pairs have been read from the shared files.
 2. The WebSocket to B is connected and the resume handshake is done.
-3. D has caught up: the `prev_seq` chain of the outputs it received has no gaps up to the largest seq seen so far. (B does not tell D when the resend is finished, so this is the only way to judge. Whether B can add an end-of-resend marker is to be confirmed with Bo.)
-4. The last SQLite write succeeded. If a write fails, D stops forwarding orders; it does not fall back to a weaker mode.
+3. Caught up: the `prev_seq` chain has no gap up to `through_seq` from B's `resume_ok` (the last output B had stored when the handshake was served). For a B without `resume_ok`, D falls back to a quiet period of `CATCHUP_QUIET_MS`.
+4. The last write to SQLite succeeded. If a write fails, D stops taking orders; it does not degrade.
 
-If a single order is not decided within `GATE_DEADLINE` (for example because the decision queue is too long), D answers `RISK_TIMEOUT`. This is D's own rejection: the order was not sent to B, so A can release the hold.
+If the decision queue is full, D replies 503 `RISK_BUSY` at once. If an order waits in the queue past `GATE_DEADLINE` without a decision, it is rejected with `RISK_TIMEOUT`, and A is notified.
 
-Cancels are not affected by readiness. While D is disconnected from B, cancels are queued and sent after reconnecting.
+Cancels do not depend on readiness. While D is disconnected from B, cancels are queued and sent after reconnecting and catching up.
+
+A being down does not affect readiness: notifications queue in the outbox and are sent when A is back.
 
 ## 9. Determinism and replay
 
-The decision for an order depends on "which of B's outputs the features had been updated to at decision time" and "which orders were in flight then". So every decision records `decision_no`, `features_seq` (the largest `(day, seq)` of B's outputs already applied at decision time) and `rule_version` (RD9).
+The decision for an order depends on "which of B's outputs the features had reached at decision time" and "which orders were in flight then". So every decision records `decision_no`, `features_seq` (the largest `(day, seq)` of B's outputs applied at decision time) and `rule_version` (RD9).
 
-How to replay: process decisions in `decision_no` order; before each decision, apply B's outputs from B's event store up to its `features_seq`; derive the in-flight orders from the earlier decisions and the outputs applied so far. The recomputed decisions must match the records exactly. This covers acceptance criterion 1. B's event store is the source of truth for orders and trades, so replay uses B's data and D does not need its own copy.
+Replay: process the decisions in `decision_no` order; before each one, apply B's outputs up to its `features_seq` from B's event store to the features; in-flight orders follow from the earlier decisions and the outputs applied so far. Each recomputed decision should match the recorded one exactly. This covers acceptance criterion 1. B's event store is the source of truth for orders and trades, so the replay uses B's data, and D does not need its own copy.
 
 ## 10. Rule versions
 
-Rules and parameters are kept in a config file (for example `rules/v1.yaml`: which rules are enabled, parameters of the optional extension). `rule_version` = file name + the first few characters of the content hash, so changing any parameter gives a new version (RD18). D loads one version at start-up and does not switch while running.
+The rules and their parameters are in a config file (for example `rules/v1.json`: which rules are enabled, and the parameters of the optional extension). `rule_version` = the file name + the first characters of the content hash. Changing any parameter gives a new version (RD18). D loads one version at start-up and does not switch while running.
 
 ## 11. Evaluation
 
-- **Data:** B's bots produce labelled manipulation orders. The label format needs to be agreed with Bo; we suggest one record per order: `{order_id, user_id, label: LEGIT | SELF_TRADE | WASH_TRADE, scenario_id}`.
-- **Metrics:** join the `decisions` table with the labels on `(user_id, order_id)` and compute offline:
+- **Data:** in the proposal, the bots (including the labelled manipulators) belong to B, and they are not written yet. D only sets the label format: one record per order, `{order_id, user_id, label: LEGIT | SELF_TRADE | WASH_TRADE, scenario_id}`, with `order_id` as A's ULID. The bots place orders through A's API, so the orders pass through D. Bo designs the scenarios and D takes no part, so the evaluation is independent; the scenarios can include cases D will not catch.
+- **Metrics:** join the `decisions` table with the labels on `(user_id, order_id)`, and compute offline:
   - precision and recall for each rule;
-  - wrongly-blocked rate = rejected LEGIT orders / all LEGIT orders;
-  - p99 decision latency, and the p99 of D's hop in the end-to-end placement latency.
-- **Scenario:** the defining scenario from the proposal (bots sending N orders per second across two pairs). N and D's share of the latency budget will be set after the Week 6 baseline.
+  - false positive rate = rejected LEGIT orders / all LEGIT orders;
+  - decision latency p99 (from receiving the order to writing the decision), and D's hop in the end-to-end placement latency.
+- **Scenario:** the defining scenario in the proposal (bots sending N orders per second across two pairs). N and D's share of the latency budget will be set after the baseline.
 
 ## 12. Failure injection and runbook
 
-D's fault switches are enabled only in the test profile (RD21). The six scenarios from the proposal:
+D's fault-injection switches exist only in the test profile (RD21). Scenarios:
 
 | Scenario | How it is triggered | Expected result |
 | --- | --- | --- |
-| D is slow | D switch: add X ms to every decision | Orders over `GATE_DEADLINE` get `RISK_TIMEOUT`; A starts shedding load based on D's p99 |
-| D is down | `docker kill` D | A's placement call times out, the order becomes `UNKNOWN` and the hold is kept; **existing orders still settle** (A subscribes to B directly); after D restarts, A cancels and every order ends in a final state |
-| Stale features | D switch: pause applying B's outputs | D sees it has not caught up and answers `RISK_UNAVAILABLE`; no decision is made on stale features |
-| B accepted, reply lost | D switch: drop the connection to B right after sending a `NewOrder`, reconnect after X seconds | D returns `UNKNOWN` to A; A sees `ACCEPTED` and the fills on its own subscription and settles normally |
-| B killed while an order is UNKNOWN | `docker kill` B after the order is `TIMED_OUT` | The cancel waits in D and the hold is kept; after B recovers, the cancel is sent and gets a clear result |
-| One event dropped | Drop one record between B and A (a B switch or a network proxy, to be agreed with Bo and Pin-Yun) | A detects the gap from `prev_seq` and fetches again with resume |
+| D slow | D switch: extra delay of X ms per decision | Orders past `GATE_DEADLINE` get `RISK_TIMEOUT`; when the queue is full, `RISK_BUSY`; A starts shedding load based on the latency of the risk result |
+| D down | `docker kill` D | A's order calls fail, orders become `UNKNOWN`, holds stay; **settlement also pauses**; after D restarts and catches up, unacknowledged notifications are sent again and every order reaches a final state |
+| Stale features | D switch: stop applying B's outputs | D sees that it has not caught up and answers 503 `RISK_UNAVAILABLE`; no decision is made on stale features |
+| B accepted, reply lost | D switch: drop the B connection right after sending `new_order`, reconnect after X seconds | When D resumes it receives `ACCEPTED` and the trades, drops the automatic cancel, and notifies A as usual |
+| B killed while an order is `TIMED_OUT` | `docker kill` B after an order is `TIMED_OUT` | The automatic cancel waits in D, holds stay; after B recovers, D catches up and gets a definite result |
+| Lost notification | D switch: skip one `notify_seq` | A answers `409 expected_seq`, D resends from there, and balances are correct |
 
-Each runbook entry has three parts: how to detect it (which metrics and logs), how to respond, and how to confirm recovery.
+The runbook for each scenario has three parts: how to detect it (which metrics and logs), how to handle it, and how to confirm recovery.
 
 ## 13. Deployment, configuration and monitoring
 
 | Aspect | Design |
 | --- | --- |
-| Image | `python:3.12-slim`, pinned dependencies; non-root user |
-| Port | **8400**: A's HTTP interface, `/healthz`, `/metrics`. Open only inside the compose network |
+| Image | `python:3.12-slim`, pinned dependencies, non-root user |
+| Port | **8400**: the HTTP interface for A, `/healthz`, `/metrics`. Open only inside the compose network |
 | Storage | Named volume `/data`, holding `d.db` |
-| Start-up order | `depends_on` B and A with `service_healthy`; `/healthz` reports unhealthy until D is ready |
-| Restart | `restart: unless-stopped`; after a restart, recover as in section 5 |
-| Network | D's subnet must be in B's `CTRL_ALLOWED_CIDRS` |
+| Config files | The shared folder `config/` (linked accounts, trading pairs) and `rules/` are mounted |
+| Start-up order | `depends_on` B with `service_healthy`; `/healthz` is unhealthy until ready |
+| Restart | `restart: unless-stopped`; recovery as in section 5 |
+| Network | D's network must be in B's `CTRL_ALLOWED_CIDRS` |
 
-Configuration (environment variables): `D_PORT`, `B_CTRL_URL`, `A_BASE_URL`, `D_TIMEOUT_MS`, `MAX_COMMAND_AGE_MS` (must match B), `CANCEL_MARGIN_MS`, `GATE_DEADLINE_MS`, `RULES_FILE`, `DATA_DIR`, `FAULTS_ENABLED`.
+Configuration (environment variables): `D_PORT`, `B_CTRL_URL`, `A_NOTIFY_URL`, `D_TIMEOUT_MS`, `MAX_COMMAND_AGE_MS` (must equal B's, currently 1000), `CANCEL_MARGIN_MS`, `GATE_DEADLINE_MS`, `DECISION_QUEUE_CAP`, `CATCHUP_QUIET_MS`, `GAP_TIMEOUT_MS`, `LINKED_ACCOUNTS_FILE`, `SYMBOLS_FILE`, `RULES_FILE`, `DATA_DIR`, `FAULTS_ENABLED`.
 
-Metrics: decision latency (histogram), rejections by reason, decision queue length, number of `TIMED_OUT` orders, number of pending cancels, connection and readiness state towards B, feature lag (time between the last applied output of B and now).
+Metrics: decision latency (histogram), rejections by reason, number of 503s, decision queue length, number of `TIMED_OUT` orders, cancels waiting to be sent, outbox backlog, notifications acknowledged, connection and readiness state, feature lag.
 
 ## 14. How the design meets the acceptance criteria
 
-| Criterion | Mechanism |
+| Acceptance criterion | Mechanism |
 | --- | --- |
-| 1. Replaying the same order sequence gives identical decisions | Rules are pure functions; every decision records `features_seq` and `rule_version`; replay as in section 9 |
-| 2. Report precision, recall and the wrongly-blocked rate | Offline evaluation in section 11 |
-| 3. Each approved order reaches B at most once; each rejected order reaches A exactly once | Idempotency key `(user_id, order_id)`; decision written before sending; retries return the recorded result (RD8) |
-| 4. With D forcibly stopped, orders do not hang | A keeps the hold; after D restarts, the delayed cancel gives every order a final state (section 7); settlement is not affected |
-| 5. Gate p99 stays within D's latency share | Rules read memory only; decisions are serial but short; monitored by metrics; the share follows the Week 6 baseline |
+| 1. Replaying the same order sequence gives the same decisions | The rules are pure functions; every decision records `features_seq` and `rule_version`; replay as in section 9 |
+| 2. Report precision, recall and false positive rate | The offline evaluation in section 11 |
+| 3. An approved order reaches B at most once; a rejected order is reported to A exactly once | Idempotency key `(user_id, order_id)`; decide and write before sending; notifications have contiguous numbers and A deduplicates by `notify_seq` (RD8, RD25) |
+| 4. No order is left hanging when D is force-stopped | All state is in the database; after a restart D catches up with B, and the automatic cancel gives every order a final state (section 7); unacknowledged notifications are sent again |
+| 5. Decision p99 within D's share of the budget | The rules read only memory; decisions are serial but short; monitored by metrics; the share is set after the baseline |
 
 ## 15. Needed from other services
 
-- **B (Bo):**
-  - Offer a read-only event subscription to A (RD6) and update D13 in the B document; whether A can resume the previous day if it is down across the end of the day (B keeps past event stores).
-  - Whether the matcher keeps the self-trade backstop (in the proposal, missing from B's document).
-  - Agree to replace the tombstone with the age rule in section 7, and set `MAX_COMMAND_AGE` and `D_TIMEOUT` together.
-  - When a cancel gets `ORDER_NOT_FOUND`, the `OrderEvent` must carry `user_id` and `order_id`, so A and D can match it to the order.
-  - Whether B can send a marker when the resume resend is finished.
-  - The bot label format.
-  - In the core, D sends no orders with `origin = LIQUIDATION`.
 - **A (Pin-Yun):**
-  - Subscribe to B's events directly for settlement.
-  - A generates `order_id` as a ULID (A document D4), so it never repeats for a user within a day (B's requirement).
-  - Provide a linked-accounts endpoint, or agree that both sides read the same seed file.
-  - Release holds by the rules in protocol document section 6: only on B's records and D's rejections, never on a timeout.
-  - Shed load based on D's p99.
+  - Base load shedding on the time from placement to the risk result (A's `lame_a_order_completion_seconds`), not on the latency of D's 202.
+  - Confirm that `POST /v1/notifications/rewind` meets A's need to "ask D to resend" during reconciliation.
+  - Done: A reads the same `linked_accounts.json` and uses integer `user_id`s; A answered the modify questions (A document 5.4).
+- **B (Bo):**
+  - Progress on the bots (including the labelled manipulators), and labels in D's format.
+  - Name the pairs `BTC-USDT` and `ETH-USDT` in `SYMBOLS`, with the same tick/lot as A and D.
+  - The wash-trading bots use the accounts in the shared linked-accounts file.
+  - Done: `resume_ok` with `through_seq`.
 - **C (Rushabh):** Prometheus scrapes D's `/metrics` (8400), and the dashboard adds D's metrics.
+- **Everyone (later):** who owns the root `docker-compose.yml`; the ADR.
 
 ## 16. Open items
 
-1. **Timeout values:** `D_TIMEOUT`, `MAX_COMMAND_AGE`, `CANCEL_MARGIN`, `GATE_DEADLINE`, set after the Week 6 baseline.
-2. **Trading day:** who defines it, the format of `day`, and what happens to orders that arrive during the end-of-day cancels (same as B's open item 1).
-3. **Optional extension of R2:** whether to enable the window condition depends on the evaluation.
-4. **Exact message fields:** waiting for the team to agree on common conventions.
+1. **Timeout values:** `D_TIMEOUT` (≥ 1000 ms), `CANCEL_MARGIN`, `GATE_DEADLINE`, `DECISION_QUEUE_CAP`, set after the baseline.
+2. **Optional extension of R2:** whether to enable the window condition depends on the evaluation.
+3. **One shared symbol file:** B still reads `SYMBOLS` from the environment; once B reads a file, D should read the same one.

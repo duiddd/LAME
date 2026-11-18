@@ -1,0 +1,7 @@
+{
+  "version": "seed-2026-11-05",
+  "groups": [
+    {"group_id": "g1", "user_ids": [1024, 1025]},
+    {"group_id": "g2", "user_ids": [3001, 3002, 3003]}
+  ]
+}
