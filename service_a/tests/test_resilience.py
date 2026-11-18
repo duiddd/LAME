@@ -21,6 +21,7 @@
 | test_shedding_refuses_before_holding | Refuse at the door | Active -> 503, nothing held, cancel still works |
 | test_supervisor_restarts_a_crashed_task | A dead task is not silent | Crash -> restarted, counted, reported |
 | test_healthz_and_metrics | Operators can see all this | /healthz shows tasks, /metrics has A's series |
+| test_http_metric_counts_errors_by_status | The dashboard's error rate | A 401 and a 200 -> separate series with method and status |
 | test_old_events_are_purged | The event log stays bounded | Older than the retention -> deleted |
 """
 import asyncio
@@ -325,6 +326,15 @@ async def test_healthz_and_metrics(client):
     assert r.status_code == 200 and r.json()["ready"] is True and "tasks" in r.json()
     body = (await client.get("/metrics")).text
     assert "lame_a_orders_total" in body and "lame_a_notification_gaps_total" in body
+
+
+async def test_http_metric_counts_errors_by_status(client):
+    # Purpose: the team dashboard derives A's error rate from the status label.
+    await client.get("/api/accounts/me")                        # no token -> 401
+    await client.get("/api/market/summary")                     # public -> 200
+    body = (await client.get("/metrics")).text
+    assert 'lame_a_http_request_duration_seconds_count{endpoint="/api/accounts/me",method="GET",status="401"} 1.0' in body
+    assert 'lame_a_http_request_duration_seconds_count{endpoint="/api/market/summary",method="GET",status="200"} 1.0' in body
 
 
 async def test_old_events_are_purged(client, container, clock):

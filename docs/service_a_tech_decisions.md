@@ -225,7 +225,7 @@
 | 指标 | 含义 |
 | --- | --- |
 | `lame_a_orders_total{result}` | 按结果分类的订单数 |
-| `lame_a_http_request_duration_seconds{endpoint}` | API 延迟 |
+| `lame_a_http_request_duration_seconds{endpoint,method,status}` | API 延迟，按状态码算错误率 |
 | `lame_a_d_ack_latency_seconds` | D 的确认延迟(仅用于监控) |
 | `lame_a_order_completion_seconds` | 下单到第一个结果的时间(负载削减的输入) |
 | `lame_a_circuit_state`、`lame_a_shedding_active` | 保护机制状态 |

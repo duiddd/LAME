@@ -6,7 +6,7 @@ class Metrics:
     def __init__(self):
         r = self.registry = CollectorRegistry()
         self.orders = Counter("lame_a_orders_total", "Orders by outcome", ["result"], registry=r)
-        self.http = Histogram("lame_a_http_request_duration_seconds", "API latency", ["endpoint"], registry=r)
+        self.http = Histogram("lame_a_http_request_duration_seconds", "API latency; status gives the error rate", ["endpoint", "method", "status"], registry=r)
         self.d_ack = Histogram("lame_a_d_ack_latency_seconds", "Latency of D's acknowledgement", registry=r)
         self.completion = Histogram("lame_a_order_completion_seconds", "Placement to first outcome", registry=r)
         self.circuit = Gauge("lame_a_circuit_state", "0 closed, 1 half open, 2 open", registry=r)

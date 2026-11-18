@@ -353,7 +353,7 @@ We accept that funds stay frozen while D is unavailable, in return for never set
 | Metric | Meaning |
 | --- | --- |
 | `lame_a_orders_total{result}` | Orders by outcome: accepted, each pre-check reason, `SYSTEM_BUSY`, risk rejected |
-| `lame_a_http_request_duration_seconds{endpoint}` | API latency |
+| `lame_a_http_request_duration_seconds{endpoint,method,status}` | API latency, and the error rate by status |
 | `lame_a_d_ack_latency_seconds` | Latency of D's acknowledgement (monitoring only) |
 | `lame_a_order_completion_seconds` | Time from placement to the order's first outcome (the input to load shedding) |
 | `lame_a_circuit_state` / `lame_a_shedding_active` | Protection state over time |

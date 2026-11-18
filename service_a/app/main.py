@@ -71,7 +71,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         started = c.clock.now_ms()
         response = await call_next(request)
         route = request.scope.get("route")
-        c.metrics.http.labels(getattr(route, "path", "other")).observe((c.clock.now_ms() - started) / 1000)
+        c.metrics.http.labels(getattr(route, "path", "other"), request.method, str(response.status_code)).observe((c.clock.now_ms() - started) / 1000)
         return response
 
     @app.get("/healthz", tags=["ops"])
