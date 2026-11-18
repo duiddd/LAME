@@ -63,5 +63,15 @@ class Settings:
         "AUTO_REPLAY_ON_STARTUP", "true"
     ).lower() in ("1", "true", "yes")
 
+    # Cross-service Prometheus /metrics targets & AI cost accounting (Point 1.3 Observability)
+    service_a_url: str = os.getenv("SERVICE_A_URL", "http://service-a:8000")
+    service_b_ctrl_url: str = os.getenv("SERVICE_B_CTRL_URL", "http://service-b:11659")
+    service_d_url: str = os.getenv("SERVICE_D_URL", "http://service-d:8400")
+    prometheus_url: str = os.getenv("PROMETHEUS_URL", "http://prometheus:9090")
+    grafana_url: str = os.getenv("GRAFANA_URL", "http://localhost:3001")
+    ai_prompt_cost_per_1m_usd: float = float(os.getenv("AI_PROMPT_COST_PER_1M_USD", "0.10"))
+    ai_eval_cost_per_1m_usd: float = float(os.getenv("AI_EVAL_COST_PER_1M_USD", "0.30"))
+    pre_llm_gate_saved_tokens_est: int = int(os.getenv("PRE_LLM_GATE_SAVED_TOKENS_EST", "350"))
+
 
 settings = Settings()

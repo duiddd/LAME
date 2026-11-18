@@ -213,10 +213,11 @@ def test_service_b_market_snapshot_monotonic_rule_and_unchanged_resends(isolated
 
 
 def test_metrics_and_web_ui_endpoints(isolated_env):
-    """Prometheus /metrics and HTML endpoints (/, /widget, /static/lame-chat-widget.js) serve properly."""
+    """Prometheus /metrics, /api/observability, and HTML endpoints serve properly."""
     with TestClient(app) as client:
         assert client.get("/").status_code == 200
         assert client.get("/widget?symbol=ETH-USDT").status_code == 200
+        assert client.get("/dashboard").status_code == 200
         assert client.get("/static/lame-chat-widget.js").status_code == 200
         assert client.get("/healthz").status_code == 200
 
@@ -225,5 +226,72 @@ def test_metrics_and_web_ui_endpoints(isolated_env):
         text = m_resp.text
         assert "lame_c_llm_inference_duration_seconds" in text
         assert "lame_c_tokens_total" in text
+        assert "lame_c_estimated_token_cost_usd" in text
+        assert "lame_c_request_rate_rps" in text
         assert "lame_c_refusal_total" in text
         assert "lame_c_rabbitmq_dlq_messages_count" in text
+
+
+def test_observability_aggregator_parses_all_four_services_and_ai_cost():
+    """ObservabilityAggregator accurately parses A/B/D Prometheus text alongside C + AI cost."""
+    import asyncio
+    from service_c.observability import ObservabilityAggregator
+
+    agg = ObservabilityAggregator()
+    sample_a = """
+# TYPE lame_a_http_request_duration_seconds histogram
+lame_a_http_request_duration_seconds_bucket{endpoint="/orders",le="0.01"} 8
+lame_a_http_request_duration_seconds_bucket{endpoint="/orders",le="0.05"} 10
+lame_a_http_request_duration_seconds_bucket{endpoint="/orders",le="+Inf"} 10
+lame_a_http_request_duration_seconds_sum{endpoint="/orders"} 0.08
+lame_a_http_request_duration_seconds_count{endpoint="/orders"} 10
+lame_a_orders_total{result="FILLED"} 9
+lame_a_orders_total{result="SYSTEM_BUSY"} 1
+lame_a_circuit_state 0
+lame_a_shedding_active 0
+lame_a_orders_unsettled 0
+"""
+    sample_b = """
+lame_b_commands_total{symbol="BTC-USDT"} 15
+lame_b_bad_frames_total 1
+lame_b_outbound_overflows_total 0
+lame_b_outputs_total{kind="rejected"} 0
+lame_b_replay_duration_seconds 0.004
+lame_b_replay_records 15
+lame_b_md_subscribers 3
+lame_b_journal_failed 0
+"""
+    sample_d = """
+lame_d_decision_seconds_bucket{le="0.001"} 9
+lame_d_decision_seconds_bucket{le="0.005"} 10
+lame_d_decision_seconds_bucket{le="+Inf"} 10
+lame_d_decision_seconds_sum 0.008
+lame_d_decision_seconds_count 10
+lame_d_decisions_total{decision="ALLOW",reason="OK"} 9
+lame_d_decisions_total{decision="REJECT",reason="SELF_TRADE"} 1
+lame_d_refused_total{reason="RISK_BUSY"} 0
+lame_d_ready 1
+lame_d_b_connected 1
+lame_d_decision_queue 0
+lame_d_outbox_backlog 0
+"""
+    snap = asyncio.run(
+        agg.collect(
+            override_scrapes={
+                "service-a": sample_a,
+                "service-b": sample_b,
+                "service-d": sample_d,
+            }
+        )
+    )
+    assert snap["services_up"] == 4
+    by_id = {s["id"]: s for s in snap["services"]}
+    assert by_id["service-a"]["requests_total"] == 10
+    assert by_id["service-a"]["errors_total"] == 1
+    assert by_id["service-b"]["requests_total"] == 15
+    assert by_id["service-b"]["errors_total"] == 1
+    assert by_id["service-d"]["requests_total"] == 10
+    assert by_id["service-d"]["errors_total"] == 1
+    assert by_id["service-d"]["latency_ms"]["p95"] > 0.0
+    assert "estimated_equivalent_cost_usd" in snap["ai"]
+    assert "direct_api_spend_usd" in snap["ai"]

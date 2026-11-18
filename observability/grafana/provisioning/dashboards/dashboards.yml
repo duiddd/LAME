@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: LAME Dashboards
+    orgId: 1
+    folder: LAME
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
