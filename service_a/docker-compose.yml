@@ -1,42 +1,53 @@
-# Service A and its database. These two services move into the root compose file at the final merge.
-# /internal/order-events must stay inside this network, so port 8000 is not published to the host.
+# Service A and its database, written to be included by the root compose file:
+#
+#   include:
+#     - service_a/docker-compose.yml
+#     - frontend/docker-compose.yml
+#
+# Included files share the root project's default network, so other services reach A as
+# service-a:8000. A expects D at service-d:8400 and B at service-b:9999; those names are the
+# contract with D's and B's compose files. Port 8000 is not published: /internal/order-events must
+# only be reachable from inside the network, and browsers reach A through the frontend's nginx.
+#
+# On its own, for A's development: docker compose -f service_a/docker-compose.yml up --build
 services:
-  postgres:
+  service-a-db:
     image: postgres:16-alpine
+    container_name: lame-service-a-db
     environment:
       POSTGRES_USER: lame
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lame}
+      POSTGRES_PASSWORD: ${SERVICE_A_DB_PASSWORD:-lame}
       POSTGRES_DB: lame
     volumes:
-      - service_a_data:/var/lib/postgresql/data
+      - service_a_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lame"]
       interval: 3s
       retries: 20
-    networks: [lame]
+    restart: unless-stopped
 
   service-a:
     build: .
+    container_name: lame-service-a
     depends_on:
-      postgres:
+      service-a-db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+asyncpg://lame:${POSTGRES_PASSWORD:-lame}@postgres:5432/lame
+      DATABASE_URL: postgresql+asyncpg://lame:${SERVICE_A_DB_PASSWORD:-lame}@service-a-db:5432/lame
       D_URL: http://service-d:8400
       B_MD_URL: ws://service-b:9999
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to a long random value}
+      # A development default keeps startup to one command; set JWT_SECRET for anything shared.
+      JWT_SECRET: ${JWT_SECRET:-lame-dev-only-secret-change-me-0123456789abcdef}
       ALLOWED_ORIGINS: http://localhost:3000
+      SEED_PASSWORD: ${SEED_PASSWORD:-lame-demo-password}
     expose:
       - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
       interval: 5s
+      start_period: 20s
       retries: 20
-    networks: [lame]
+    restart: unless-stopped
 
 volumes:
-  service_a_data:
-
-networks:
-  lame:
-    name: lame
+  service_a_pgdata:

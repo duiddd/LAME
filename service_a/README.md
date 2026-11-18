@@ -32,9 +32,25 @@ python -m venv .venv
 # Tests need a PostgreSQL; TEST_DATABASE_URL defaults to port 55432, user lame, database lame_test.
 .venv/Scripts/python -m pytest -q
 
-# With Docker:
-JWT_SECRET=<a long random value> docker compose up --build
+# A and its database on their own, with Docker:
+docker compose -f service_a/docker-compose.yml up --build
 ```
+
+### In the team's compose file
+
+`docker-compose.yml` in this folder is written to be included by the root compose file, so each
+owner keeps their own file and the root lists them:
+
+```yaml
+include:
+  - service_a/docker-compose.yml
+  - frontend/docker-compose.yml
+```
+
+A is `service-a` on port 8000, reachable only inside the project network; the frontend's nginx
+on port 3000 is the way in for browsers. A expects D at `service-d:8400` and B at
+`service-b:9999`, so those are the service names D's and B's files need to use. `JWT_SECRET` has
+a development default so that one command starts everything; set it for anything shared.
 
 The integration check needs a checkout of `feature/risk_control`. On Windows, D also needs the
 `tzdata` package.

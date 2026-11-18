@@ -7,6 +7,8 @@ FROM python:3.12-slim
 RUN useradd --create-home --uid 1000 lame
 COPY --from=build /install /usr/local
 WORKDIR /srv
+# The alembic command does not put the working directory on sys.path, and migrations import app.
+ENV PYTHONPATH=/srv PYTHONUNBUFFERED=1
 COPY alembic.ini .
 COPY migrations migrations
 COPY config config
