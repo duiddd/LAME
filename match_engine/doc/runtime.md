@@ -325,8 +325,9 @@ mounts until the file has a system-wide home.
 - **Compose snippet.** `compose.yaml` defines `service-b` and its volume:
   ports 9999 and 11659, `read_only`, non-root user, `cap_drop: [ALL]`,
   `no-new-privileges`, `stop_grace_period: 10s`, `restart: unless-stopped`,
-  2 CPUs and 512 MB, `json-file` logs capped at 5 x 20 MB. The root compose
-  file can copy the service or `include:` this file.
+  2 CPUs and 512 MB, `json-file` logs capped at 5 x 20 MB. The root
+  `docker-compose.yml` pulls it in with `include:`, so `docker compose up` at
+  the repository root starts B; paths in it stay relative to `match_engine/`.
 - **Checked in a container:** an order, a trade and a snapshot over the mapped
   ports; `SIGTERM` stops in about 0.2 s with exit code 0; after a restart, and
   after `SIGKILL` plus a restart, recovery passes and a resume from 0 returns

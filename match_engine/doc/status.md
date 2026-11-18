@@ -81,6 +81,5 @@
   its cancels are still written into the old day's store.
 - A mismatch at start-up stops the process with an error; a container restart
   policy will keep restarting it until someone looks.
-- `compose.yaml` is not yet part of the root `docker-compose.yml`, and the
-  pair config file has no system-wide home yet: `config/pairs.json` here is
+- The pair config file has no system-wide home yet: `config/pairs.json` here is
   the copy B mounts, and its A-side values are placeholders.

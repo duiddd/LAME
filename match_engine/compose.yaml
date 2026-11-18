@@ -1,11 +1,8 @@
 # Service B's part of the system compose file (D23).
 #
+# The root docker-compose.yml pulls this file in with `include:`, so
+# `docker compose up` at the repository root starts B with everything else.
 # Standalone:   docker compose -f match_engine/compose.yaml up --build
-# In the root file, either copy the `service-b` service and the volume below,
-# or pull this file in with:
-#
-#   include:
-#     - match_engine/compose.yaml
 #
 # Services that need B wait for it with:
 #

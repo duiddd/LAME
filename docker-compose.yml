@@ -1,5 +1,11 @@
 version: "3.9"
 
+# Service B (matching engine) is defined in its own directory, with paths
+# relative to it: service `service-b`, volume `service_b_data`, ports 9999 and
+# 11659. Wait for it with `depends_on: service-b: condition: service_healthy`.
+include:
+  - match_engine/compose.yaml
+
 services:
   service-c:
     build:
