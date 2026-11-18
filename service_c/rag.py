@@ -152,11 +152,14 @@ class RAGEngine:
 
         meta = GLOBAL_INSTRUMENTS.get(market_ctx.symbol, {})
         exch = meta.get("exchange", "Service B")
-        price_str = (
-            f"{market_ctx.last_price:,} (best bid {market_ctx.best_bid:,}, best ask {market_ctx.best_ask:,})"
-            if market_ctx.last_price and market_ctx.best_bid and market_ctx.best_ask
-            else f"{market_ctx.last_price}"
-        )
+        if market_ctx.last_price is not None and market_ctx.best_bid is not None and market_ctx.best_ask is not None:
+            price_str = f"{market_ctx.last_price:,} (best bid {market_ctx.best_bid:,}, best ask {market_ctx.best_ask:,})"
+        elif market_ctx.last_price is not None:
+            price_str = f"{market_ctx.last_price:,}"
+        elif market_ctx.best_bid is not None and market_ctx.best_ask is not None:
+            price_str = f"no trades yet (best bid {market_ctx.best_bid:,}, best ask {market_ctx.best_ask:,})"
+        else:
+            price_str = "no trades yet"
 
         for idx, item in enumerate(retrieved[:3]):
             nid = item["news_id"]
@@ -242,12 +245,17 @@ class RAGEngine:
             metrics.record_refusal("insufficient_evidence")
             elapsed = time.perf_counter() - start_wall
             metrics.record_chat_latency(elapsed)
+            insufficient_price = (
+                f"{market_ctx.last_price}"
+                if market_ctx.last_price is not None
+                else "unavailable (no trades yet)"
+            )
             return ChatResponse(
                 answer=(
                     f"Insufficient evidence: No verified news items in the knowledge base (index v{index_version}) "
                     f"match your query regarding '{req.query}'. Service C refuses to speculate or fabricate causes "
                     f"when grounded news evidence is unavailable. Latest {market_ctx.symbol} price from Service B is "
-                    f"{market_ctx.last_price} (freshness: {market_ctx.data_freshness_seconds:.1f}s)."
+                    f"{insufficient_price} (freshness: {market_ctx.data_freshness_seconds:.1f}s)."
                 ),
                 status="INSUFFICIENT_EVIDENCE",
                 refusal_reason="insufficient_evidence",

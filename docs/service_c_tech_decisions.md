@@ -98,11 +98,11 @@ Service C 接收两种外部输入：
 
 ### D8. 行情快照消费与价格上下文注入
 
-- **决策:** Service C 维持一条指向 Service B 端口 `9999/md/<symbol>` 的只读 WebSocket 客户端，在本地内存维护各 Symbol 最新一条有效快照（Top-3 盘口与 `last_price`）。
+- **决策:** Service C 维持一条指向 Service B 端口 `9999/md/<symbol>` 的只读 WebSocket 客户端，在本地内存维护各 Symbol 最新一条有效快照（Top-3 盘口与 `last_price`）。Service B 不存在独立的心跳消息或 `heartbeat=true` 字段；当盘口无变化时，Service B 仅原样重发当前快照（`last_ms` 不变）。
 - **理由:**
   - Service B 架构决策 D6 已明确：行情快照为自包含全量数据，时间戳递增。C 不需要持久化全部历史 Tick，只需在用户提问时提取最新的盘口价格与最新成交价拼接进 LLM Prompt，作为当前市场的即时背景。
 - **后果:**
-  - 若 WebSocket 断连，缓存打上失效标记；超过 3 秒未收到心跳则向提问者返回“行情数据不可用/延迟”，避免基于过时价格解释市场。
+  - 若 WebSocket 断连或超过 3 秒未收到任何行情快照，缓存打上 `is_stale = true` 失效标记并向提问者返回数据新鲜度预警，避免基于过时价格解释市场；重连时重置本地时间戳水位以兼容 B 重启或跨交易日重置。
 
 ### D9. 运行指标与仪表盘暴露（Prometheus Metrics）
 

@@ -3,11 +3,14 @@
 Connects to `ws://service-b:9999/md/<symbol>` and consumes self-contained full snapshots
 of the top-3 bids/asks plus `last_price`.
 - Supports Service B (`match_engine/src/md.rs`) and Service A (`mocks/state.ts`) wire format:
-  `{ "bids": [...], "asks": [...], "last_price": int, "volume": int, "last_ms": int }`.
-- Enforces Service B D6 & Service A D15 rule:
+  `{ "bids": [...], "asks": [...], "last_price": int | null, "volume": int, "last_ms": int }`.
+- Service B does NOT emit a separate heartbeat message or `heartbeat=true` field. When the book
+  is unchanged over a 1s interval, Service B simply re-sends its current `MarketData` snapshot
+  with the same `last_ms`.
+- Enforces Service B D6 & Service A D15 rules:
   - Discards strictly older snapshots (`ts_ms < existing.timestamp_ms`).
-  - Treats equal `last_ms` (`ts_ms == existing.timestamp_ms`) as a valid 1s heartbeat,
-    updating receipt time (`_received_wall_ms`) so quiet markets are not marked stale.
+  - Treats repeated `last_ms` (`ts_ms == existing.timestamp_ms`) on a normal snapshot as an
+    unchanged market-snapshot resend, updating `_received_wall_ms` so quiet markets stay fresh.
   - Normalizes integer-cent prices (`price_decimals=2`, e.g. `6425000` -> `64250`) when upstream
     sends cent-scaled integers.
 """
@@ -93,11 +96,22 @@ class MarketDataCache:
             return round(val / 100)
         return val
 
+    def _on_ws_connect(self, symbol: str) -> None:
+        """Marks WebSocket connected and resets watermark for new Service B session/day."""
+        norm_sym = normalize_instrument_symbol(symbol) or symbol.strip().upper()
+        with self._lock:
+            self._ws_connected[norm_sym] = True
+            existing = self._snapshots.get(norm_sym)
+            if existing is not None and existing.source == "service_b_ws":
+                # Service B restarts / new trading days reset `last_ms` back to 0.
+                existing.timestamp_ms = -1
+
     def update_snapshot(self, payload: dict, source: str = "service_b_ws") -> bool:
-        """Applies a new snapshot or refreshes heartbeat receipt time.
+        """Applies a new Service B market snapshot or refreshes receipt time on unchanged resends.
 
         - Drops strictly older snapshots (`ts_ms < existing.timestamp_ms`).
-        - Accepts equal timestamps (`ts_ms == existing.timestamp_ms`) as a Service B heartbeat.
+        - Refreshes receipt time when Service B re-sends the current snapshot unchanged
+          (`ts_ms == existing.timestamp_ms`, without requiring any `heartbeat` flag).
         """
         raw_sym = str(payload.get("symbol", "")).strip().upper()
         if not raw_sym:
@@ -123,18 +137,9 @@ class MarketDataCache:
             ):
                 if ts_ms < existing.timestamp_ms:
                     return False
-                if ts_ms == existing.timestamp_ms and payload.get("heartbeat") is True:
-                    self._received_wall_ms[symbol] = now_wall_ms
-                    return True
-                if (
-                    ts_ms == existing.timestamp_ms
-                    and payload.get("last_price") is not None
-                    and self._normalize_price(symbol, int(payload["last_price"])) == existing.last_price
-                ):
-                    self._received_wall_ms[symbol] = now_wall_ms
-                    return True
                 if ts_ms == existing.timestamp_ms:
-                    return False
+                    self._received_wall_ms[symbol] = now_wall_ms
+                    return True
 
             raw_bids = payload.get("bids", [])[:3]
             raw_asks = payload.get("asks", [])[:3]
@@ -292,7 +297,7 @@ class MarketDataCache:
         while not self._stop_event.is_set():
             try:
                 async with websockets.connect(ws_url, ping_interval=5, ping_timeout=5) as ws:
-                    self._ws_connected[symbol] = True
+                    self._on_ws_connect(symbol)
                     backoff = 1.0
                     logger.info("Connected to Service B market data stream: %s", ws_url)
                     async for raw_msg in ws:

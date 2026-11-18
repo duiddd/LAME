@@ -6,7 +6,7 @@ Modeled on `service_a/tools/integration_check.py`:
 Scenarios verified:
 1. Live WebSocket market-data stream using Service B / Service A's exact wire format
    (`bids`, `asks`, `last_price` in integer cents `price_decimals=2`, `volume`, `last_ms`,
-   plus repeated-`last_ms` 1s heartbeats).
+   plus unchanged snapshot resends with no `heartbeat=true` field).
 2. Service A Frontend `useServiceCReachable()` (`GET /healthz` + CORS `Access-Control-Allow-Origin: *`).
 3. Service A Frontend `useNews(symbol)` (`GET /api/news?symbol=BTC-USDT&limit=20` & `ETH-USDT`)
    matching `frontend/src/shared/types.ts` `NewsItem` contract.
@@ -94,13 +94,13 @@ async def run_checks() -> None:
 
     await test_pipeline.replay_script_file()
 
-    # Feed Service B / Service A FakeSocket wire messages (including repeated-last_ms heartbeats)
+    # Feed Service B / Service A wire messages (including unchanged snapshot resends with same last_ms, no heartbeat=true)
     for sym, book in BOOKS.items():
         frame = {"symbol": sym, **book}
         test_market.update_snapshot(frame, source="service_b_ws")
-        # Send repeated-last_ms 1s heartbeat (Service B Decision D6 / Service A Decision D15)
-        hb_ok = test_market.update_snapshot(frame, source="service_b_ws")
-        check(f"Service B 1s heartbeat accepted for {sym} (repeated last_ms)", hb_ok is True)
+        # Service B re-sends the exact same snapshot on quiet markets without any heartbeat flag
+        resend_ok = test_market.update_snapshot(frame, source="service_b_ws")
+        check(f"Service B unchanged snapshot resend accepted for {sym} (same last_ms, no heartbeat flag)", resend_ok is True)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8080") as client:
