@@ -109,8 +109,15 @@ numbers are in `docs/submission/report_service_a.md`.
 | B's market data stops | Stop B | Orders refused `NO_FRESH_PRICE` after 3 s; the frontend marks the book interrupted | Start B |
 | A crashes mid-order | Kill A's process | On restart, `PENDING` orders become `UNKNOWN` and are resent or cancelled; D resends unconfirmed notifications, which the cursor applies once | Start A |
 
-`tools/measure_local.py` repeats the D-down test and the latency measurement;
-`tools/bench_notifications.py` measures how fast notifications are applied.
+| Tool | What it does |
+| --- | --- |
+| `tools/fault_demo.py` | Steady traffic while D is killed, slowed and B stopped; marks each fault on Grafana |
+| `tools/consistency_demo.py` | Double submit, lost notification, A crash with D's outbox pending, no reply from D; then checks the books |
+| `tools/measure_local.py` | Latency, and the D-down test on its own |
+| `tools/bench_notifications.py` | How fast notifications are applied |
+| `tools/screenshot.py` | A dashboard as PNG over a fault run's time window |
+
+The results of the 18 Nov run are in `docs/submission/fault_injection.md`.
 
 ## Operating notes
 

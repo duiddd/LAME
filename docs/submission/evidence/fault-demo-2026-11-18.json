@@ -1,0 +1,196 @@
+{
+  "phase_seconds": 45,
+  "order_price": "47500.00",
+  "timeline": [
+    {
+      "t_s": 1.8,
+      "at": "2026-11-18T15:32:50",
+      "phase": "baseline",
+      "event": "Baseline traffic",
+      "a_health": {
+        "ready": true,
+        "circuit": 0,
+        "shedding": false
+      },
+      "d_health": {
+        "ready": true,
+        "b_connected": true
+      }
+    },
+    {
+      "t_s": 45.3,
+      "at": "2026-11-18T15:33:33",
+      "phase": "d_down",
+      "event": "FAULT: D's process killed",
+      "a_health": {
+        "ready": true,
+        "circuit": 0,
+        "shedding": false
+      },
+      "d_health": {
+        "error": "ConnectTimeout"
+      }
+    },
+    {
+      "t_s": 96.8,
+      "at": "2026-11-18T15:34:25",
+      "phase": "d_recovering",
+      "event": "RECOVER: D restarted (ready=True)",
+      "a_health": {
+        "ready": true,
+        "circuit": 0,
+        "shedding": false
+      },
+      "d_health": {
+        "ready": true,
+        "b_connected": true
+      }
+    },
+    {
+      "t_s": 135.6,
+      "at": "2026-11-18T15:35:04",
+      "phase": "d_slow",
+      "event": "FAULT: D slowed to 2 s per risk decision",
+      "a_health": {
+        "ready": true,
+        "circuit": 0,
+        "shedding": false
+      },
+      "d_health": {
+        "ready": true,
+        "b_connected": true
+      }
+    },
+    {
+      "t_s": 195.3,
+      "at": "2026-11-18T15:36:03",
+      "phase": "d_slow_recovering",
+      "event": "RECOVER: D's delay removed",
+      "a_health": {
+        "ready": true,
+        "circuit": 0,
+        "shedding": true
+      },
+      "d_health": {
+        "ready": true,
+        "b_connected": true
+      }
+    },
+    {
+      "t_s": 240.4,
+      "at": "2026-11-18T15:36:49",
+      "phase": "b_down",
+      "event": "FAULT: B (matching engine) stopped",
+      "a_health": {
+        "ready": true,
+        "circuit": 0,
+        "shedding": true
+      },
+      "d_health": {
+        "ready": false,
+        "b_connected": false
+      }
+    },
+    {
+      "t_s": 271.5,
+      "at": "2026-11-18T15:37:20",
+      "phase": "b_recovering",
+      "event": "RECOVER: B started",
+      "a_health": {
+        "ready": true,
+        "circuit": 0,
+        "shedding": false
+      },
+      "d_health": {
+        "ready": false,
+        "b_connected": false
+      }
+    },
+    {
+      "t_s": 315.0,
+      "at": "2026-11-18T15:38:03",
+      "phase": "end",
+      "event": "End of run",
+      "a_health": {
+        "ready": true,
+        "circuit": 0,
+        "shedding": false
+      },
+      "d_health": {
+        "ready": true,
+        "b_connected": true
+      }
+    }
+  ],
+  "by_phase": {
+    "baseline": {
+      "orders": 55,
+      "outcomes": {
+        "accepted": 55
+      },
+      "post_ms_p50": 223.2,
+      "post_ms_max": 996.8
+    },
+    "d_down": {
+      "orders": 89,
+      "outcomes": {
+        "503 SYSTEM_BUSY": 88,
+        "accepted": 1
+      },
+      "post_ms_p50": 23.0,
+      "post_ms_max": 712.4
+    },
+    "d_recovering": {
+      "orders": 52,
+      "outcomes": {
+        "accepted": 52
+      },
+      "post_ms_p50": 195.0,
+      "post_ms_max": 1038.1
+    },
+    "d_slow": {
+      "orders": 109,
+      "outcomes": {
+        "accepted": 11,
+        "503 SYSTEM_BUSY": 98
+      },
+      "post_ms_p50": 20.9,
+      "post_ms_max": 571.0
+    },
+    "d_slow_recovering": {
+      "orders": 68,
+      "outcomes": {
+        "503 SYSTEM_BUSY": 40,
+        "accepted": 28
+      },
+      "post_ms_p50": 43.1,
+      "post_ms_max": 1331.4
+    },
+    "b_down": {
+      "orders": 54,
+      "outcomes": {
+        "503 SYSTEM_BUSY": 3,
+        "400 NO_FRESH_PRICE": 51
+      },
+      "post_ms_p50": 21.3,
+      "post_ms_max": 80.0
+    },
+    "b_recovering": {
+      "orders": 58,
+      "outcomes": {
+        "400 NO_FRESH_PRICE": 4,
+        "accepted": 54
+      },
+      "post_ms_p50": 193.1,
+      "post_ms_max": 2324.0
+    },
+    "end": {
+      "orders": 2,
+      "outcomes": {
+        "accepted": 2
+      },
+      "post_ms_p50": 794.2,
+      "post_ms_max": 968.1
+    }
+  }
+}
