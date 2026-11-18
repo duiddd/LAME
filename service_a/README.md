@@ -82,6 +82,36 @@ powershell -ExecutionPolicy Bypass -File service_a	oolsun_local.ps1
 C runs on 8081 with RabbitMQ off, because 8080 and 5672 are often taken by other Windows
 services. The first start compiles B in a `rust:1.90` container, which takes about 6 minutes.
 
+## Runbook
+
+**Observe.** `GET /healthz` reports the database, the background tasks, the circuit breaker (0
+closed, 1 half open, 2 open) and load shedding. `GET /metrics` exports A's series; the ones that
+show trouble first:
+
+| Metric | What it tells you |
+| --- | --- |
+| `lame_a_orders_total{result}` | Orders by outcome; `SYSTEM_BUSY` rising means D is down or slow |
+| `lame_a_order_completion_seconds` | Placing to D's first answer: the input to load shedding |
+| `lame_a_circuit_state`, `lame_a_shedding_active` | Whether A is refusing orders to protect D |
+| `lame_a_orders_by_status{status="UNKNOWN"}` | Orders sent without a reply, holding funds |
+| `lame_a_notify_cursor_age_seconds`, `lame_a_notify_failures_total` | Settlement stalled or stopped |
+| `lame_a_orders_unsettled` | Finished orders still waiting for a trade |
+| `lame_a_md_age_seconds{symbol}` | Time since B's last market data |
+
+**Break it, and what recovery looks like.** Each was run against the real D and B; the measured
+numbers are in `docs/submission/report_service_a.md`.
+
+| Break | How | Expected | Recovers by |
+| --- | --- | --- | --- |
+| D down | Stop D's process or container | New orders `503 SYSTEM_BUSY`, nothing held; after 5 failures the breaker opens and refusals are immediate | Start D: it resumes from B, the breaker lets a trial through after 10 s |
+| D slow | D's `POST /admin/faults` with `decision_delay_ms` (needs `FAULTS_ENABLED=true` on D) | Load shedding refuses new orders; cancels still pass | Remove the delay; shedding ends below 80% of its threshold |
+| A missed a notification | D's `skip_next_notification` fault | A answers the next one `409` with `expected_seq`; D resends | Automatic |
+| B's market data stops | Stop B | Orders refused `NO_FRESH_PRICE` after 3 s; the frontend marks the book interrupted | Start B |
+| A crashes mid-order | Kill A's process | On restart, `PENDING` orders become `UNKNOWN` and are resent or cancelled; D resends unconfirmed notifications, which the cursor applies once | Start A |
+
+`tools/measure_local.py` repeats the D-down test and the latency measurement;
+`tools/bench_notifications.py` measures how fast notifications are applied.
+
 ## Operating notes
 
 - Reset A's and D's data together. `notify_seq` restarts when D's data is reset, and A would take

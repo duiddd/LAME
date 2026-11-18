@@ -1,0 +1,77 @@
+{
+  "reference_price": 50000.0,
+  "order_price": "47500.00",
+  "latency": {
+    "post": {
+      "n": 40,
+      "p50_ms": 160.4,
+      "p95_ms": 215.9,
+      "max_ms": 491.9
+    },
+    "post_to_accepted": {
+      "n": 40,
+      "p50_ms": 227.6,
+      "p95_ms": 505.1,
+      "max_ms": 566.9
+    },
+    "cancel_to_cancelled": {
+      "n": 40,
+      "p50_ms": 265.0,
+      "p95_ms": 528.8,
+      "max_ms": 597.1
+    }
+  },
+  "d_failure": {
+    "attempts_while_down": [
+      {
+        "status": 503,
+        "reason": "SYSTEM_BUSY",
+        "ms": 580.5
+      },
+      {
+        "status": 503,
+        "reason": "SYSTEM_BUSY",
+        "ms": 591.6
+      },
+      {
+        "status": 503,
+        "reason": "SYSTEM_BUSY",
+        "ms": 580.7
+      },
+      {
+        "status": 503,
+        "reason": "SYSTEM_BUSY",
+        "ms": 595.5
+      },
+      {
+        "status": 503,
+        "reason": "SYSTEM_BUSY",
+        "ms": 598.2
+      },
+      {
+        "status": 503,
+        "reason": "SYSTEM_BUSY",
+        "ms": 15.0
+      },
+      {
+        "status": 503,
+        "reason": "SYSTEM_BUSY",
+        "ms": 18.0
+      },
+      {
+        "status": 503,
+        "reason": "SYSTEM_BUSY",
+        "ms": 16.6
+      }
+    ],
+    "usdt_held_while_down": "0.00000",
+    "a_health_while_down": {
+      "ready": true,
+      "circuit": 2
+    },
+    "d_ready_after_restart_ms": 4154.0,
+    "a_accepts_again_after_restart_ms": 8992.0,
+    "orders_tried_until_accepted": 10,
+    "seconds_from_kill_to_recovery": 15.1
+  }
+}
