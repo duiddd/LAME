@@ -1,0 +1,8 @@
+target
+doc
+tests
+**/.DS_Store
+Dockerfile
+.dockerignore
+compose.yaml
+config

@@ -1,4 +1,5 @@
-//! Runtime configuration from environment variables (D23).
+//! Runtime configuration (D23): environment variables, plus the trading pairs
+//! from the pair config file shared with A (`PAIRS_FILE`).
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -7,6 +8,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use ipnet::IpNet;
+use serde::Deserialize;
 
 use crate::types::SymbolSpec;
 
@@ -26,7 +28,7 @@ pub struct Config {
     /// A subscriber that has heard nothing for this long is sent the last
     /// message again (D6). One second; tests shorten it.
     pub md_heartbeat: Duration,
-    /// Trading pairs with their tick and lot.
+    /// Trading pairs with their tick and lot, in the order the file lists them.
     pub symbols: Vec<(String, SymbolSpec)>,
 }
 
@@ -59,12 +61,11 @@ impl Config {
         if cap == 0 {
             return Err(anyhow!("OUTBOUND_QUEUE_CAP must be positive"));
         }
-        // TODO: read the trading pairs and their tick/lot from the mounted
-        // config file (D23). The file format is not decided yet, so for now
-        // they come from SYMBOLS, formatted `NAME:tick:lot,NAME:tick:lot`.
-        let symbols = parse_symbols(&get("SYMBOLS").ok_or_else(|| {
-            anyhow!("SYMBOLS is not set (temporary stand-in for the symbol config file)")
-        })?)?;
+        let pairs_file = get("PAIRS_FILE").unwrap_or_else(|| DEFAULT_PAIRS_FILE.into());
+        let text = std::fs::read_to_string(&pairs_file)
+            .with_context(|| format!("reading the pair config file {pairs_file}"))?;
+        let symbols =
+            parse_pairs(&text).with_context(|| format!("pair config file {pairs_file}"))?;
         Ok(Self {
             md_addr: addr("MD_ADDR", "0.0.0.0:9999")?,
             ctrl_addr: addr("CTRL_ADDR", "0.0.0.0:11659")?,
@@ -77,27 +78,64 @@ impl Config {
     }
 }
 
-pub fn parse_symbols(text: &str) -> Result<Vec<(String, SymbolSpec)>> {
+/// Where the pair config file is mounted unless `PAIRS_FILE` says otherwise.
+pub const DEFAULT_PAIRS_FILE: &str = "/etc/lame/pairs.json";
+
+/// The only `version` of the pair config file this build understands.
+pub const PAIRS_FILE_VERSION: u32 = 1;
+
+/// The pair config file, as far as B reads it. The file is shared with A and
+/// carries more (`assets`, `base`, `quote`, the decimals, A's size limits);
+/// fields B does not name here are ignored, so others can add theirs freely.
+#[derive(Deserialize)]
+struct PairsFile {
+    version: u32,
+    pairs: Vec<PairEntry>,
+}
+
+#[derive(Deserialize)]
+struct PairEntry {
+    symbol: String,
+    /// Price grid, in the pair's integer price units.
+    tick: i64,
+    /// Quantity grid, in the pair's integer quantity units.
+    lot: i64,
+}
+
+/// Parses and checks the pair config file. Any problem is an error, and the
+/// process refuses to start: a wrong grid would reject or accept the wrong
+/// orders for the whole day.
+pub fn parse_pairs(text: &str) -> Result<Vec<(String, SymbolSpec)>> {
+    let file: PairsFile = serde_json::from_str(text).context("not a valid pair config file")?;
+    if file.version != PAIRS_FILE_VERSION {
+        return Err(anyhow!(
+            "version {} is not supported (expected {PAIRS_FILE_VERSION})",
+            file.version
+        ));
+    }
     let mut out: Vec<(String, SymbolSpec)> = Vec::new();
-    for item in text.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        let parts: Vec<&str> = item.split(':').collect();
-        let [name, tick, lot] = parts[..] else {
-            return Err(anyhow!("symbol {item:?} is not NAME:tick:lot"));
-        };
-        let tick: i64 = tick.parse().with_context(|| format!("tick in {item:?}"))?;
-        let lot: i64 = lot.parse().with_context(|| format!("lot in {item:?}"))?;
-        if name.is_empty() || tick <= 0 || lot <= 0 {
+    for p in file.pairs {
+        // The name is a path segment in `/md/<symbol>`.
+        let well_formed = !p.symbol.is_empty()
+            && p.symbol
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+        if !well_formed {
             return Err(anyhow!(
-                "symbol {item:?} needs a name and positive tick/lot"
+                "symbol {:?} must be letters, digits, '-', '_' or '.'",
+                p.symbol
             ));
         }
-        if out.iter().any(|(n, _)| n == name) {
-            return Err(anyhow!("symbol {name:?} listed twice"));
+        if p.tick <= 0 || p.lot <= 0 {
+            return Err(anyhow!("{}: tick and lot must be positive", p.symbol));
         }
-        out.push((name.to_string(), SymbolSpec::new(tick, lot)));
+        if out.iter().any(|(n, _)| *n == p.symbol) {
+            return Err(anyhow!("symbol {:?} listed twice", p.symbol));
+        }
+        out.push((p.symbol, SymbolSpec::new(p.tick, p.lot)));
     }
     if out.is_empty() {
-        return Err(anyhow!("no symbols configured"));
+        return Err(anyhow!("no pairs configured"));
     }
     Ok(out)
 }

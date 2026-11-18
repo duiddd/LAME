@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "assets": {
+    "BTC": { "decimals": 8 },
+    "ETH": { "decimals": 8 },
+    "USDT": { "decimals": 6 }
+  },
+  "pairs": [
+    {
+      "symbol": "BTC-USDT",
+      "base": "BTC",
+      "quote": "USDT",
+      "price_decimals": 2,
+      "qty_decimals": 6,
+      "tick": 1,
+      "lot": 100,
+      "min_qty": 100,
+      "max_qty": 10000000,
+      "max_notional": 100000000000
+    },
+    {
+      "symbol": "ETH-USDT",
+      "base": "ETH",
+      "quote": "USDT",
+      "price_decimals": 2,
+      "qty_decimals": 6,
+      "tick": 1,
+      "lot": 1000,
+      "min_qty": 1000,
+      "max_qty": 100000000,
+      "max_notional": 100000000000
+    }
+  ]
+}

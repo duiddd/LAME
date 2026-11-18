@@ -16,8 +16,14 @@ use support::*;
 const BIN: &str = env!("CARGO_BIN_EXE_match_engine");
 
 fn command(dir: &Path) -> Command {
+    let pairs = dir.join("pairs.json");
+    std::fs::write(
+        &pairs,
+        r#"{"version":1,"pairs":[{"symbol":"AAA","tick":1,"lot":1},{"symbol":"BBB","tick":5,"lot":10}]}"#,
+    )
+    .unwrap();
     let mut cmd = Command::new(BIN);
-    cmd.env("SYMBOLS", "AAA:1:1,BBB:5:10")
+    cmd.env("PAIRS_FILE", &pairs)
         .env("EVENT_DB_DIR", dir)
         .env("CTRL_ADDR", "127.0.0.1:0")
         .env("MD_ADDR", "127.0.0.1:0")
@@ -198,10 +204,10 @@ fn a_second_process_on_the_same_directory_refuses_to_start() {
 }
 
 #[test]
-fn start_up_without_a_symbol_list_fails_with_a_reason() {
+fn start_up_without_the_pair_config_file_fails_with_a_reason() {
     let dir = tempfile::tempdir().unwrap();
     let mut cmd = command(dir.path());
-    cmd.env_remove("SYMBOLS");
+    cmd.env("PAIRS_FILE", dir.path().join("missing.json"));
     let mut child = cmd.spawn().unwrap();
     let logs: Vec<String> = BufReader::new(child.stdout.take().unwrap())
         .lines()
@@ -210,5 +216,5 @@ fn start_up_without_a_symbol_list_fails_with_a_reason() {
     assert!(!child.wait().unwrap().success());
     assert!(logs
         .iter()
-        .any(|l| field(l, "error").is_some_and(|e| e.contains("SYMBOLS"))));
+        .any(|l| field(l, "error").is_some_and(|e| e.contains("missing.json"))));
 }

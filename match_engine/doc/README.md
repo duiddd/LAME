@@ -23,3 +23,9 @@ cargo clippy --all-targets -- -D warnings
 
 The toolchain is pinned in `rust-toolchain.toml` (Rust 1.90.0, with rustfmt
 and clippy).
+
+In a container (see [runtime.md](runtime.md#container)):
+
+```bash
+docker compose -f compose.yaml up --build
+```

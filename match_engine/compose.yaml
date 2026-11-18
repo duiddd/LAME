@@ -1,0 +1,63 @@
+# Service B's part of the system compose file (D23).
+#
+# The root docker-compose.yml pulls this file in with `include:`, so
+# `docker compose up` at the repository root starts B with everything else.
+# Standalone:   docker compose -f match_engine/compose.yaml up --build
+#
+# Services that need B wait for it with:
+#
+#   depends_on:
+#     service-b:
+#       condition: service_healthy
+
+services:
+  service-b:
+    build:
+      context: .
+      args:
+        # D15. Must agree with D's command timeout; changing it needs a rebuild.
+        MAX_COMMAND_AGE: "1000"
+    image: lame-service-b
+    container_name: lame-service-b
+    ports:
+      - "9999:9999"   # /md/<pair>, market data, open to the frontend
+      - "11659:11659" # /d, /healthz, /metrics, limited by CTRL_ALLOWED_CIDRS
+    environment:
+      # The pair config file shared with A, mounted below.
+      PAIRS_FILE: /etc/lame/pairs.json
+      # Loopback for the health check, plus the private ranges Docker networks
+      # use. Narrow it to D's and Prometheus's networks when those are fixed.
+      CTRL_ALLOWED_CIDRS: "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+      OUTBOUND_QUEUE_CAP: "10000"
+      RUST_LOG: "info"
+    volumes:
+      - service_b_data:/data
+      # Replace the source with the system-wide pair file once it has a home.
+      - ./config/pairs.json:/etc/lame/pairs.json:ro
+    read_only: true
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # B stops in well under this on SIGTERM; SIGKILL after it is still safe (D12).
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/match_engine", "--healthcheck"]
+      interval: 2s
+      timeout: 2s
+      retries: 3
+      # Recovery replays the whole day before B reports healthy.
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  service_b_data:

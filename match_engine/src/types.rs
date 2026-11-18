@@ -11,10 +11,7 @@ pub type Seq = u64;
 pub type Timestamp = i64;
 
 /// Grid of one trading pair: prices are multiples of `tick`, quantities are
-/// multiples of `lot` (D5).
-///
-/// TODO: load tick/lot per symbol from the mounted config file (D23). The file
-/// format is not decided yet, so callers build this by hand for now.
+/// multiples of `lot` (D5). Read from the pair config file (`config::parse_pairs`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SymbolSpec {
     pub tick: Price,
