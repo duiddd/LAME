@@ -387,10 +387,14 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /** ModifyIn */
+        /**
+         * ModifyIn
+         * @description A modify changes the remaining quantity only, up or down; the price stays (team decision).
+         *
+         *     Extra fields are refused, so a client that still sends a price is told so instead of having
+         *     it silently ignored.
+         */
         ModifyIn: {
-            /** Price */
-            price?: string | null;
             /** Qty */
             qty: string;
         };

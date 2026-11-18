@@ -18,15 +18,21 @@ function sideClass(side: string) {
   return side === "BUY" ? "text-up" : "text-down";
 }
 
+/** The quantity still on the book; a modify sets this, not the order's original size. */
+function remainingQty(order: Order): string {
+  const decimals = order.qty.split(".")[1]?.length ?? 0;
+  return (Number(order.qty) - Number(order.filled_qty)).toFixed(decimals);
+}
+
+/** A modify changes the remaining quantity only, up or down; the price stays (team decision). */
 function ModifyForm({ order, onDone }: { order: Order; onDone(message?: string): void }) {
   const client = useQueryClient();
-  const [price, setPrice] = useState(order.price ?? "");
-  const [qty, setQty] = useState(order.qty);
+  const [qty, setQty] = useState(() => remainingQty(order));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
-      const updated = await api<Order>(`/api/orders/${order.order_id}`, { method: "PUT", json: { price, qty } });
+      const updated = await api<Order>(`/api/orders/${order.order_id}`, { method: "PUT", json: { qty } });
       client.setQueryData<Order[]>(ORDERS_KEY, (list) => mergeOrder(list, updated));
       onDone();
     } catch (err) {
@@ -36,7 +42,7 @@ function ModifyForm({ order, onDone }: { order: Order; onDone(message?: string):
 
   return (
     <form onSubmit={submit} className="flex items-center gap-2">
-      <input aria-label="New price" value={price} onChange={(e) => setPrice(e.target.value)} className="w-24 rounded border border-line bg-harbour px-2 py-0.5" />
+      <span className="text-muted">Remaining at {groupDecimal(order.price ?? "")}</span>
       <input aria-label="New remaining amount" value={qty} onChange={(e) => setQty(e.target.value)} className="w-20 rounded border border-line bg-harbour px-2 py-0.5" />
       <button className="text-buoy">Save</button>
       <button type="button" onClick={() => onDone()} className="text-muted">
