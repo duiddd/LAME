@@ -42,13 +42,14 @@
   outputs a crash left unwritten, refusing to start on any disagreement. Nothing
   is served until it finishes.
 - `SIGTERM` / `SIGINT`: orderly stop.
+- Pair config file (`PAIRS_FILE`, JSON, shared with A), checked at start-up.
+- Container image and compose snippet (`Dockerfile`, `compose.yaml`): distroless,
+  non-root, read-only root, health check, resource and log limits.
 
 ## Not implemented yet
 
 | Item | Where it is specified |
 | --- | --- |
-| Reading the pairs and their tick/lot from the mounted config file. **Temporary arrangement:** they come from the `SYMBOLS` environment variable (`NAME:tick:lot,...`), see `runtime.md`. Only `Config::from_lookup` changes when the file arrives | D23. The file format is not decided |
-| Dockerfile, compose snippet, read-only root file system, non-root user, resource limits, log rotation | D23 |
 | Bots and load tests | Separate image |
 | A `DayEnd` record after the end-of-day cancels | Open item in the decision record |
 | Weekends and holidays | Deliberately not handled at this layer |
@@ -80,4 +81,6 @@
   its cancels are still written into the old day's store.
 - A mismatch at start-up stops the process with an error; a container restart
   policy will keep restarting it until someone looks.
-- The binary has not been run inside a container yet.
+- `compose.yaml` is not yet part of the root `docker-compose.yml`, and the
+  pair config file has no system-wide home yet: `config/pairs.json` here is
+  the copy B mounts, and its A-side values are placeholders.

@@ -258,29 +258,79 @@ is needed for correctness; a kill is recovered by replay.
 | `CTRL_ALLOWED_CIDRS` | sources allowed on the control port | loopback and private ranges |
 | `EVENT_DB_DIR` | event stores and lock file | `/data` |
 | `OUTBOUND_QUEUE_CAP` | queue per D connection | `10000` |
-| `SYMBOLS` | pairs, `NAME:tick:lot,...`. **Temporary**, to be replaced by the symbol config file (see below) | required |
+| `PAIRS_FILE` | the pair config file (see below) | `/etc/lame/pairs.json` |
 | `RUST_LOG` | log level | `info` |
 | `MAX_COMMAND_AGE` | **build time**, ms | `1000` |
 
-## Trading pairs: a temporary arrangement
+## The pair config file
 
-The pairs, with their tick and lot, are meant to come from a mounted config
-file (D23). The format of that file is not decided, so for now they come from
-one environment variable:
+The trading pairs come from one JSON file, shared with A (A's D8 and D10), so
+that the grid A checks and the grid B enforces never disagree. It is mounted
+read-only at `PAIRS_FILE`. `config/pairs.json` is the copy the compose snippet
+mounts until the file has a system-wide home.
 
+```json
+{
+  "version": 1,
+  "assets": { "BTC": { "decimals": 8 }, "USDT": { "decimals": 6 } },
+  "pairs": [
+    {
+      "symbol": "BTC-USDT", "base": "BTC", "quote": "USDT",
+      "price_decimals": 2, "qty_decimals": 6,
+      "tick": 1, "lot": 100,
+      "min_qty": 100, "max_qty": 10000000, "max_notional": 100000000000
+    }
+  ]
+}
 ```
-SYMBOLS=AAA:1:1,BBB:5:10        # NAME:tick:lot, comma separated
-```
 
-- It is required; the process refuses to start without it.
-- Names must be unique, tick and lot must be positive integers.
-- The order listed is the order engines are created in; it has no other effect.
-- Everything downstream (engines, market-data cells, the check on incoming
-  symbols, recovery) takes its pairs from `Config::symbols`, so replacing the
-  source means changing only `Config::from_lookup` in `src/config.rs`, where a
-  `TODO` marks the spot.
-- **To be replaced by the config file.** When that happens, `SYMBOLS` goes away
-  and this section should be removed.
+- **Everything is an integer.** A wire value means `value / 10^decimals`:
+  with `price_decimals: 2`, price `6425000` is 64250.00 USDT and `tick: 1` is
+  0.01; with `qty_decimals: 6`, `lot: 100` is 0.0001 BTC. There are no decimal
+  strings and no floats in the file.
+- **What B reads:** `version` and, per pair, `symbol`, `tick` and `lot`. Every
+  other field is ignored, so other services can add theirs without a change
+  to B.
+- **What B vouches for:** the meaning of `symbol`, `tick`, `lot`,
+  `price_decimals` and `qty_decimals`. `assets`, `base`, `quote`, `min_qty`,
+  `max_qty` and `max_notional` are A's; their values here are placeholders
+  until A sets them.
+- **Checks at start-up.** B refuses to start, with the file's path in the
+  error, if the file is missing or not JSON, `version` is not 1, there are no
+  pairs, a `symbol` repeats or is not made of letters, digits, `-`, `_` and
+  `.` (it is a path segment in `/md/<symbol>`), or a `tick` or `lot` is not a
+  positive integer.
+- The order of `pairs` is the order engines are created in; it has no other
+  effect.
+- Changing the file needs a restart. Changing a pair's grid during a day
+  makes the day's replay disagree with what was stored, and recovery refuses
+  to start; change grids between days only.
+
+## Container
+
+`Dockerfile` and `compose.yaml` sit next to `Cargo.toml` (D23).
+
+- **Image.** Multi-stage: `rust:1.90.0-slim-bookworm` builds with
+  `--locked`, dependencies in their own layer; the runtime is
+  `gcr.io/distroless/cc-debian12:nonroot` (no shell, uid 65532). About 57 MB.
+- **`MAX_COMMAND_AGE`** is a build argument (default 1000), because the engine
+  reads it at compile time (D15). Changing it means rebuilding.
+- **`/data`** is created in the image and owned by uid 65532, so a named volume
+  mounted there for the first time takes that owner. It is the only writable
+  place: the compose file sets `read_only: true`, and SQLite keeps temporary
+  data in memory.
+- **Health.** `match_engine --healthcheck` is both the image's `HEALTHCHECK`
+  and compose's. `start_period: 60s` covers recovery, during which `/healthz`
+  answers 503. Other services wait with `condition: service_healthy`.
+- **Compose snippet.** `compose.yaml` defines `service-b` and its volume:
+  ports 9999 and 11659, `read_only`, non-root user, `cap_drop: [ALL]`,
+  `no-new-privileges`, `stop_grace_period: 10s`, `restart: unless-stopped`,
+  2 CPUs and 512 MB, `json-file` logs capped at 5 x 20 MB. The root compose
+  file can copy the service or `include:` this file.
+- **Checked in a container:** an order, a trade and a snapshot over the mapped
+  ports; `SIGTERM` stops in about 0.2 s with exit code 0; after a restart, and
+  after `SIGKILL` plus a restart, recovery passes and a resume from 0 returns
+  the same records with `through_seq` set.
 
 ## Choices to be aware of
 
