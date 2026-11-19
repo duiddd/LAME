@@ -256,7 +256,6 @@ Metrics: decision latency (histogram), rejections by reason, number of 503s, dec
   - Done: A reads the same `linked_accounts.json` and uses integer `user_id`s; A answered the modify questions (A document 5.4).
 - **B (Bo):**
   - Progress on the bots (including the labelled manipulators), and labels in D's format.
-  - Name the pairs `BTC-USDT` and `ETH-USDT` in `SYMBOLS`, with the same tick/lot as A and D.
   - The wash-trading bots use the accounts in the shared linked-accounts file.
   - Done: `resume_ok` with `through_seq`.
 - **C (Rushabh):** Prometheus scrapes D's `/metrics` (8400), and the dashboard adds D's metrics.
@@ -266,4 +265,4 @@ Metrics: decision latency (histogram), rejections by reason, number of 503s, dec
 
 1. **Timeout values:** `D_TIMEOUT` (≥ 1000 ms), `CANCEL_MARGIN`, `GATE_DEADLINE`, `DECISION_QUEUE_CAP`, set after the baseline.
 2. **Optional extension of R2:** whether to enable the window condition depends on the evaluation.
-3. **One shared symbol file:** B still reads `SYMBOLS` from the environment; once B reads a file, D should read the same one.
+3. **One shared pair file:** B reads `match_engine/config/pairs.json`, and D's `config/symbols.json` copies its tick and lot (11-19). D can read B's file directly through `SYMBOLS_FILE` once the file has a shared place in the root compose.

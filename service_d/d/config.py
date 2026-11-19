@@ -48,8 +48,10 @@ class StaticConfig:
 
 
 def load_static(s: Settings) -> StaticConfig:
+    # D's own file lists "symbols"; B's pairs.json lists "pairs". D reads only symbol, tick and lot.
+    raw_symbols = json.loads(Path(s.symbols_file).read_text())
     symbols = {x["symbol"]: {"tick": x["tick"], "lot": x["lot"]}
-               for x in json.loads(Path(s.symbols_file).read_text())["symbols"]}
+               for x in raw_symbols.get("symbols") or raw_symbols["pairs"]}
     links = json.loads(Path(s.linked_accounts_file).read_text())
     groups = {}
     for g in links["groups"]:

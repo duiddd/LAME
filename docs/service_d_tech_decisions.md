@@ -223,7 +223,7 @@ This document records D's decisions, their reasons and their consequences. The I
 
 - **Decision:** trading pairs are written like `BTC-USDT`. Names, tick and lot are in a shared file `config/symbols.json`, read by A, B and D. D uses it to check the symbol and the tick/lot grid when an order arrives.
 - **Reason:** A, C and D already use `BTC-USDT` in their documents. With one config, the tick/lot values are always the same in every service. B's implementation currently uses the environment variable `SYMBOLS`, and `runtime.md` already says it will be replaced by a config file.
-- **Consequence:** names follow B (11-06); A's `symbols.json` already uses `BTC-USDT` and `ETH-USDT`. B still reads the pairs from the `SYMBOLS` environment variable, so D's file and B's variable must be kept the same until B reads a file.
+- **Consequence:** names follow B (11-06), and tick and lot follow B's `pairs.json` too (11-19): BTC-USDT lot 100, ETH-USDT lot 1000, tick 1. D's file copies these values; D can also read B's `pairs.json` directly, since it reads only `symbol`, `tick` and `lot`.
 
 ### RD29. D does not handle trading hours
 
@@ -252,7 +252,7 @@ This document records D's decisions, their reasons and their consequences. The I
 
 ### With Bo (B)
 1. When the bots (including the labelled manipulators) will be written. Label format: one record per order, `{order_id, user_id, label: LEGIT | SELF_TRADE | WASH_TRADE, scenario_id}`, with `order_id` as A's ULID. The bots place orders through A. Bo designs the scenarios, and they can include cases D will not catch.
-2. Name the pairs `BTC-USDT` and `ETH-USDT` in `SYMBOLS`, with the same tick/lot (RD28).
+2. Done: pair names, tick and lot follow B's `pairs.json` (RD28).
 3. The wash-trading bots use the accounts in the shared linked-accounts file (RD17).
 4. For information: D assigns the integer order IDs sent to B (RD24); D cancels automatically after a timeout (RD13).
 

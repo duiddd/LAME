@@ -66,7 +66,7 @@ This document defines the interfaces between D and A and B. The design backgroun
   "side": "BUY",
   "type": "LIMIT",
   "price": 6425000,
-  "qty": 3
+  "qty": 300
 }
 ```
 
@@ -137,7 +137,7 @@ The proposal says that a modify is sent to D under the same `order_id`, and beco
 **Request**
 
 ```json
-{ "user_id": 1024, "order_id": "01JBCX3K8Q...", "price": 6420000, "qty": 2 }
+{ "user_id": 1024, "order_id": "01JBCX3K8Q...", "price": 6420000, "qty": 200 }
 ```
 
 `qty` is the new **remaining** quantity (A document 5.4); `price` can be left out if it does not change.
@@ -178,7 +178,7 @@ Used by A for reconciliation (A document section 9). Read-only; it changes nothi
   "order_id": "01JBCX3K8Q...", "user_id": 1024,
   "state": "LIVE",
   "decision": "APPROVED", "reason": null,
-  "filled_qty": 1, "remaining_qty": 2,
+  "filled_qty": 100, "remaining_qty": 200,
   "last_notify_seq": 5821
 }
 ```
@@ -268,7 +268,7 @@ A uses `(b_day, order_seq)` as the order's number at B (A's `b_order_seq`).
 
 ```json
 {
-  "price": 6424000, "qty": 1,
+  "price": 6424000, "qty": 100,
   "taker": { "order_id": "01JBCX3K8Q...", "user_id": 1024, "side": "BUY" },
   "maker": { "order_id": "01JBCW9P2M...", "user_id": 2077, "side": "SELL" }
 }
@@ -281,7 +281,7 @@ A uses `(b_day, order_seq)` as the order's number at B (A's `b_order_seq`).
 **`ORDER_UPDATE`**: the order's state changed.
 
 ```json
-{ "status": "CANCELLED", "reason": "END_OF_DAY", "filled_qty": 1, "remaining_qty": 0 }
+{ "status": "CANCELLED", "reason": "END_OF_DAY", "filled_qty": 100, "remaining_qty": 0 }
 ```
 
 | `status` | Source |
@@ -311,7 +311,7 @@ A uses `(b_day, order_seq)` as the order's number at B (A's `b_order_seq`).
 **`MODIFY_RESULT`**: the result of a modify (section 2.3).
 
 ```json
-{ "result": "APPLIED", "price": 6420000, "qty": 2, "reason": null, "order_seq": 57 }
+{ "result": "APPLIED", "price": 6420000, "qty": 200, "reason": null, "order_seq": 57 }
 ```
 
 - `result`: `APPLIED` or `REJECTED`.
@@ -358,7 +358,7 @@ B's implementation is the reference (`match_engine/doc/runtime.md`).
 
 ```json
 {"type":"new_order","symbol":"BTC-USDT","order_id":481,"user_id":1024,"side":"BUY",
- "order_type":"LIMIT","price":6425000,"qty":3,"origin":"USER","sent_at":1793270400125}
+ "order_type":"LIMIT","price":6425000,"qty":300,"origin":"USER","sent_at":1793270400125}
 {"type":"cancel_order","symbol":"BTC-USDT","user_id":1024,"order_id":481}
 ```
 
@@ -372,9 +372,9 @@ B's implementation is the reference (`match_engine/doc/runtime.md`).
 
 ```json
 {"type":"order_event","day":"2026-11-05","seq":4,"prev_seq":2,"symbol":"BTC-USDT",
- "order_seq":3,"order_id":481,"user_id":1024,"status":"ACCEPTED","filled":0,"remaining":3,"reason":null}
+ "order_seq":3,"order_id":481,"user_id":1024,"status":"ACCEPTED","filled":0,"remaining":300,"reason":null}
 {"type":"trade","day":"2026-11-05","seq":5,"prev_seq":4,"symbol":"BTC-USDT",
- "price":6424000,"qty":1,"taker_seq":3,"maker_seq":1,"taker_user_id":1024,"maker_user_id":2077}
+ "price":6424000,"qty":100,"taker_seq":3,"maker_seq":1,"taker_user_id":1024,"maker_user_id":2077}
 ```
 
 - `status`: `ACCEPTED`, `PARTIALLY_FILLED`, `FILLED`, `CANCELLED`, `REJECTED`.
@@ -425,12 +425,12 @@ Two static files in one shared folder (for example `config/`), mounted into A, B
 - A user belongs to at most one group; a user in no group is a group of one.
 - A creates its seed users from it; B's wash-trading bots pick accounts from it; D's R2 uses it.
 
-**Trading pairs `config/symbols.json`** (names and tick/lot must match B's `SYMBOLS` environment variable and A's `symbols.json`; A's file has the same two pairs)
+**Trading pairs `config/symbols.json`** (names, tick and lot follow B's `match_engine/config/pairs.json`, agreed on 11-19; A's `symbols.json` should use the same values. D reads only `symbol`, `tick` and `lot`, and can also read B's `pairs.json` directly through `SYMBOLS_FILE`)
 
 ```json
 { "symbols": [
-  { "symbol": "BTC-USDT", "tick": 1, "lot": 1 },
-  { "symbol": "ETH-USDT", "tick": 1, "lot": 1 }
+  { "symbol": "BTC-USDT", "tick": 1, "lot": 100 },
+  { "symbol": "ETH-USDT", "tick": 1, "lot": 1000 }
 ] }
 ```
 
