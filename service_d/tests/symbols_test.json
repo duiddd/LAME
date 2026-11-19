@@ -1,0 +1,6 @@
+{
+  "symbols": [
+    {"symbol": "BTC-USDT", "tick": 1, "lot": 1},
+    {"symbol": "ETH-USDT", "tick": 1, "lot": 1}
+  ]
+}

@@ -24,14 +24,15 @@ import httpx
 from d.evaluate import percentile
 
 USERS = [1024, 1025, 3001, 3002, 3003] + list(range(5000, 5050))
-SYMBOLS = ["BTC-USDT", "ETH-USDT"]
+SYMBOLS = {"BTC-USDT": 100, "ETH-USDT": 1000}   # symbol -> lot, as in config/symbols.json
 
 
 def make_order(n: int, rnd: random.Random) -> dict:
     market = rnd.random() < 0.05
-    return {"order_id": f"LT{int(time.time())}{n:07d}", "user_id": rnd.choice(USERS), "symbol": rnd.choice(SYMBOLS),
+    symbol = rnd.choice(list(SYMBOLS))
+    return {"order_id": f"LT{int(time.time())}{n:07d}", "user_id": rnd.choice(USERS), "symbol": symbol,
             "side": rnd.choice(["BUY", "SELL"]), "type": "MARKET" if market else "LIMIT",
-            "price": None if market else rnd.randint(95, 105), "qty": rnd.randint(1, 5)}
+            "price": None if market else rnd.randint(95, 105), "qty": rnd.randint(1, 5) * SYMBOLS[symbol]}
 
 
 async def drive(client: httpx.AsyncClient, rate: int, seconds: float, seed: int):
