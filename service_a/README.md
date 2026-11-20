@@ -117,7 +117,7 @@ numbers are in `docs/submission/report_service_a.md`.
 | `tools/bench_notifications.py` | How fast notifications are applied |
 | `tools/screenshot.py` | A dashboard as PNG over a fault run's time window |
 
-The results of the 18 Nov run are in `docs/submission/fault_injection.md`.
+The results of the 20 Nov run on the compose system are in `docs/submission/fault_injection.md`.
 
 ## Operating notes
 

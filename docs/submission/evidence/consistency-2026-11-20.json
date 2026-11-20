@@ -1,0 +1,182 @@
+{
+  "idempotent_request": {
+    "at": "2026-11-20T00:53:14",
+    "responses": [
+      [
+        202,
+        "01M7V72Y8W8QK8ATF0B93562DQ"
+      ],
+      [
+        202,
+        "01M7V72Y8W8QK8ATF0B93562DQ"
+      ]
+    ],
+    "order_rows": 1,
+    "hold_ledger_entries": 1,
+    "usdt_held": "47.50000000",
+    "held_after_cancel": "0.00000000",
+    "pass": true
+  },
+  "lost_notification": {
+    "at": "2026-11-20T00:53:16",
+    "o1_status_while_skipped": "SENT",
+    "both_processing": true,
+    "a_gaps_answered_409": 1.0,
+    "d_log": [
+      "2026-11-20 00:53:17,236 WARNING d.notifier fault: skipping notify_seq 689",
+      "2026-11-20 00:53:18,832 WARNING d.notifier A expects notify_seq 689 (sent 690), resending from there"
+    ],
+    "a_cursor": 690,
+    "d_delivered_seq": 690,
+    "d_newest_seq": 690,
+    "pass": true
+  },
+  "outbox_across_a_crash": {
+    "at": "2026-11-20T00:53:48",
+    "statuses_before_kill": [
+      "SENT",
+      "SENT",
+      "SENT"
+    ],
+    "d_backlog_while_a_down": 3.0,
+    "d_pending_notifications": [
+      [
+        695,
+        "RISK_REJECTED",
+        "01M7V740YZXGQ1P7MEKZB7QHCT"
+      ],
+      [
+        696,
+        "RISK_REJECTED",
+        "01M7V741326GZBAXHNTT3CJJR2"
+      ],
+      [
+        697,
+        "RISK_REJECTED",
+        "01M7V7415BAMQEB3K3Y29762ZV"
+      ]
+    ],
+    "a_ready_s_after_kill": 20.9,
+    "d_backlog_zero_s_after_kill": 21.5,
+    "d_decisions": [
+      [
+        "REJECTED",
+        "RISK_TIMEOUT"
+      ],
+      [
+        "REJECTED",
+        "RISK_TIMEOUT"
+      ],
+      [
+        "REJECTED",
+        "RISK_TIMEOUT"
+      ]
+    ],
+    "statuses_after": [
+      "REJECTED",
+      "REJECTED",
+      "REJECTED"
+    ],
+    "a_held_amounts_after": [
+      0,
+      0,
+      0
+    ],
+    "a_duplicates_ignored_after_restart": 0.0,
+    "a_cursor": 697,
+    "d_delivered_seq": 697,
+    "d_newest_seq": 697,
+    "pass": true
+  },
+  "no_reply_resent": {
+    "at": "2026-11-20T00:54:18",
+    "frozen_s": 3,
+    "place_answer": {
+      "status": 202,
+      "body": {
+        "order_id": "01M7V74X2ZWRHN0WS8TG7E4ZQD",
+        "client_order_id": "c135991-8",
+        "symbol": "BTC-USDT",
+        "side": "BUY",
+        "type": "LIMIT",
+        "price": "47500.00",
+        "qty": "0.001000",
+        "filled_qty": "0.000000",
+        "settled_qty": "0.000000",
+        "avg_fill_price": null,
+        "status": "UNKNOWN",
+        "reason": null,
+        "cancel_requested": false,
+        "created_at": 1795136058463,
+        "updated_at": 1795136060493
+      },
+      "ms": 2076
+    },
+    "status_while_frozen": "UNKNOWN",
+    "usdt_held_while_frozen": "47.50000000",
+    "final_status": "PROCESSING",
+    "settled_s_after_thaw": 1.7,
+    "a_row_attempts_status_held_closed": [
+      "1",
+      "PROCESSING",
+      "4750000000",
+      "f"
+    ],
+    "d_order_rows": 1,
+    "d_orders_sent_to_b": 1,
+    "pass": true
+  },
+  "no_reply_cancelled": {
+    "at": "2026-11-20T00:54:52",
+    "frozen_s": 8,
+    "place_answer": {
+      "status": 202,
+      "body": {
+        "order_id": "01M7V75YYH4ADE70FCV9VJCF0G",
+        "client_order_id": "c135991-9",
+        "symbol": "BTC-USDT",
+        "side": "BUY",
+        "type": "LIMIT",
+        "price": "47500.00",
+        "qty": "0.001000",
+        "filled_qty": "0.000000",
+        "settled_qty": "0.000000",
+        "avg_fill_price": null,
+        "status": "UNKNOWN",
+        "reason": null,
+        "cancel_requested": false,
+        "created_at": 1795136093137,
+        "updated_at": 1795136095163
+      },
+      "ms": 2075
+    },
+    "status_while_frozen": "UNKNOWN",
+    "usdt_held_while_frozen": "47.50000000",
+    "final_status": "CANCELLED",
+    "settled_s_after_thaw": 1.3,
+    "a_row_attempts_status_held_closed": [
+      "3",
+      "CANCELLED",
+      "0",
+      "t"
+    ],
+    "d_order_rows": 1,
+    "d_orders_sent_to_b": 1,
+    "pass": true
+  },
+  "books": {
+    "at": "2026-11-20T00:55:05",
+    "accounts_not_explained_by_ledger": 0,
+    "held_not_matching_open_orders": 0,
+    "closed_orders_still_holding": 0,
+    "orders_in_doubt": 0,
+    "assets_not_conserved": 0,
+    "open_orders_by_status": {},
+    "orders_total": 243,
+    "trades_total": 2,
+    "a_cursor": 703,
+    "d_delivered_seq": 703,
+    "d_newest_seq": 703,
+    "pass": true
+  }
+}

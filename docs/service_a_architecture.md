@@ -390,7 +390,7 @@ The team dashboard is Service C's: a Grafana dashboard fed by Prometheus, which 
 
 The method and status labels of `lame_a_http_request_duration_seconds` were added for the dashboard, so that A's server errors (`status=~"5.."`) can be counted directly. The dashboard does not use them yet.
 
-The failure-injection run of 18 Nov and its dashboard captures are in `docs/submission/fault_injection.md`.
+The failure-injection run of 20 Nov on the compose system and its dashboard captures are in `docs/submission/fault_injection.md`.
 
 ## 13. Frontend (D15)
 
