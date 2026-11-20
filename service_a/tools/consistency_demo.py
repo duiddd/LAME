@@ -215,7 +215,7 @@ async def _d_backlog_zero():
     return await metric(D, "lame_d_outbox_backlog") == 0
 
 
-async def no_reply(u: User, frozen_s: float):
+async def no_reply(u: User, frozen_s: float, outcomes: set):
     TARGET.freeze_d(True)
     try:
         start = time.perf_counter()
@@ -230,7 +230,7 @@ async def no_reply(u: User, frozen_s: float):
     thawed = time.perf_counter()
     final = None
     if oid:
-        await wait_for(lambda: _settled(u, oid), 60, 0.5)
+        await wait_for(lambda: _settled(u, oid, outcomes), 60, 0.2)
         final = await u.order(oid)
     attempts = sql(f"SELECT attempts, status, held_amount, closed_at IS NOT NULL FROM orders WHERE order_id = '{oid}'")[0] if oid else None
     d_copies = d_sql("SELECT count(*) FROM orders WHERE order_id = ?", oid)[0][0] if oid else None
@@ -241,13 +241,16 @@ async def no_reply(u: User, frozen_s: float):
             "d_order_rows": d_copies, "d_orders_sent_to_b": d_b_orders}, oid
 
 
-async def _settled(u, oid):
+async def _settled(u, oid, outcomes):
+    # Waits for the outcome the scenario is about, not a passing state: after a thaw D may accept the
+    # original request just before A's compensating cancel lands (seen 48 ms apart).
+    # 等到情境要驗證的結果,而不是中間狀態:D 解凍後可能先接受原始請求,A 的補償撤單 48 ms 後才到。
     o = await u.order(oid)
-    return o["status"] in ("PROCESSING", "CANCELLED", "REJECTED", "FILLED") and not o.get("cancel_requested")
+    return o["status"] in outcomes and not o.get("cancel_requested")
 
 
 async def no_reply_resent(u: User):
-    result, oid = await no_reply(u, 3)
+    result, oid = await no_reply(u, 3, {"PROCESSING", "CANCELLED", "REJECTED", "FILLED"})
     if oid and result["final_status"] == "PROCESSING":
         await u.cancel_all([oid])
     result["pass"] = result["status_while_frozen"] == "UNKNOWN" and result["final_status"] == "PROCESSING" \
@@ -256,7 +259,7 @@ async def no_reply_resent(u: User):
 
 
 async def no_reply_cancelled(u: User):
-    result, oid = await no_reply(u, 8)
+    result, oid = await no_reply(u, 8, {"CANCELLED", "REJECTED", "FILLED", "EXPIRED"})
     if oid and result["final_status"] == "PROCESSING":
         await u.cancel_all([oid])
     row = result["a_row_attempts_status_held_closed"]
