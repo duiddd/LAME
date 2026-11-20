@@ -25,13 +25,13 @@ rejected because it would hold A's row locks while B's single matching thread wa
 
 **Consequences.**
 
-- No fill settles against released money, against the zero-overdraft constraint: 219 A tests, including 100
-  concurrent holds on one balance, and after the 20 Nov fault and consistency runs a books check over 243
+- No fill settles against released money, against the zero-overdraft constraint: 220 A tests, including 100
+  concurrent holds on one balance, and after the 20 Nov fault and consistency runs a books check over 253
   orders found 0 balances unexplained by the ledger, 0 holds without an open order and 0 orders left in doubt.
 - Funds of orders in flight freeze while D is unreachable, against a demo where a user waits minutes, not
-  hours: with D's container killed for about 40 s, every new order was refused before anything was held, and
-  A accepted again 2.7 s after D was ready. An outage longer than the 5 s resend window turns an in-flight
-  order into a cancel: with D paused for 8 s, the order ended `CANCELLED` and its hold returned 1.3 s after D
+  hours: with D's container killed for about 49 s, every new order was refused before anything was held, and
+  A accepted again 1.2 s after D was ready. An outage longer than the 5 s resend window turns an in-flight
+  order into a cancel: with D paused for 8 s, the order ended `CANCELLED` and its hold returned 1.2 s after D
   came back.
 - Users see "Confirming" instead of a plain failure and must not place the order again, against the rule
   that one click makes at most one order: the UI says so, and the cost is one more order state and its
