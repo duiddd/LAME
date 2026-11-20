@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes } from "react-router-dom";
 import { DepositDialog } from "../features/account/DepositDialog";
 import { AnalystPage } from "../features/analyst/Panels";
 import { LoginPage } from "../features/auth/LoginPage";
+import { isAdmin } from "../features/auth/roles";
 import { useAuth } from "../features/auth/useAuth";
 import { DashboardPage } from "../features/observability/DashboardPage";
 import { useUserStream } from "../features/orders/useOrders";
@@ -35,9 +36,11 @@ function Shell() {
         <NavLink to="/news-analyst" className={navClass}>
           News & Analyst
         </NavLink>
-        <NavLink to="/dashboard" className={navClass}>
-          Dashboard
-        </NavLink>
+        {isAdmin(user) && (
+          <NavLink to="/dashboard" className={navClass}>
+            Dashboard
+          </NavLink>
+        )}
         <div className="ml-auto flex items-center gap-4">
           {user ? (
             <>
@@ -64,6 +67,15 @@ function Shell() {
   );
 }
 
+/** The system dashboard is for operators: anyone else who opens /dashboard goes to the trade page. */
+function AdminOnly({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return null;
+  }
+  return isAdmin(user) ? <>{children}</> : <Navigate to="/trade/BTC-USDT" replace />;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -74,7 +86,7 @@ export function App() {
             <Route path="/trade/:symbol" element={<TradePage />} />
             <Route path="/trade" element={<Navigate to="/trade/BTC-USDT" replace />} />
             <Route path="/news-analyst" element={<AnalystPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/dashboard" element={<AdminOnly><DashboardPage /></AdminOnly>} />
             <Route path="*" element={<Navigate to="/trade/BTC-USDT" replace />} />
           </Route>
         </Routes>

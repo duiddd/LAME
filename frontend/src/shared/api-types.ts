@@ -540,6 +540,11 @@ export interface components {
             user_id: number;
             /** Username */
             username: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "USER" | "ADMIN";
         };
         /** ValidationError */
         ValidationError: {
