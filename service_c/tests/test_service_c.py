@@ -297,7 +297,7 @@ lame_d_outbox_backlog 0
     assert by_id["service-a"]["key_gauges"]["orders_refused"] == 3
     assert by_id["service-b"]["requests_total"] == 15
     assert by_id["service-b"]["errors_total"] == 1
-    assert by_id["service-b"]["key_gauges"]["outputs_total"] == 15
+    assert by_id["service-b"]["key_gauges"]["order_events"] == 12
     assert by_id["service-d"]["requests_total"] == 11
     assert by_id["service-d"]["errors_total"] == 4
     assert by_id["service-d"]["key_gauges"]["approved_decisions"] == 7

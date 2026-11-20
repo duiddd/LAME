@@ -372,6 +372,7 @@ async def run_checks() -> None:
                 "service-b": (
                     'lame_b_commands_total{symbol="BTC-USDT"} 6\n'
                     'lame_b_outputs_total{kind="OrderEvent"} 5\n'
+                    'lame_b_outputs_total{kind="Trade"} 2\n'
                     'lame_b_bad_frames_total 1\n'
                 ),
                 "service-d": (
@@ -383,12 +384,12 @@ async def run_checks() -> None:
         )
         by_svc = {s["id"]: s for s in agg_check["services"]}
         check(
-            "ObservabilityAggregator parses D REJECTED, A 4xx/5xx/order refusals, and B outputs accurately",
+            "ObservabilityAggregator parses D REJECTED, A 4xx/5xx/order refusals, and B OrderEvent only",
             by_svc["service-d"]["errors_total"] == 3
             and by_svc["service-d"]["key_gauges"]["rejected_decisions"] == 2
             and by_svc["service-a"]["errors_total"] == 1
             and by_svc["service-b"]["errors_total"] == 1
-            and by_svc["service-b"]["key_gauges"]["outputs_total"] == 5,
+            and by_svc["service-b"]["key_gauges"]["order_events"] == 5,
             by_svc,
         )
 

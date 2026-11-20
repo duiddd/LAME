@@ -307,7 +307,8 @@ class ObservabilityAggregator:
             },
             "key_gauges": {
                 "md_subscribers": int(p.gauge_value("lame_b_md_subscribers")),
-                "outputs_total": int(p.sum_metric("lame_b_outputs_total")),
+                # Track OrderEvent outputs only (not Trade), as order status lives only on OrderEvent.
+                "order_events": int(p.sum_metric("lame_b_outputs_total", {"kind": "OrderEvent"})),
                 "journal_backlog": int(p.gauge_value("lame_b_journal_backlog")),
                 "outbound_backlog": int(p.gauge_value("lame_b_outbound_backlog")),
                 "replay_records": int(p.gauge_value("lame_b_replay_records")),
