@@ -1,0 +1,43 @@
+{
+  "_comment": "Tests only: a fixed grid (3 quantity decimals, lot 1), so the business-logic tests do not depend on the production units in config/symbols.json. test_pairs.py checks the production file against B.",
+  "assets": {
+    "USDT": {
+      "decimals": 5,
+      "max_deposit": "1000000"
+    },
+    "BTC": {
+      "decimals": 3,
+      "max_deposit": "100"
+    },
+    "ETH": {
+      "decimals": 3,
+      "max_deposit": "1000"
+    }
+  },
+  "symbols": [
+    {
+      "symbol": "BTC-USDT",
+      "base": "BTC",
+      "quote": "USDT",
+      "tick": 1,
+      "lot": 1,
+      "price_decimals": 2,
+      "qty_decimals": 3,
+      "min_qty": 1,
+      "max_qty": 100000,
+      "max_notional": 100000000000
+    },
+    {
+      "symbol": "ETH-USDT",
+      "base": "ETH",
+      "quote": "USDT",
+      "tick": 1,
+      "lot": 1,
+      "price_decimals": 2,
+      "qty_decimals": 3,
+      "min_qty": 1,
+      "max_qty": 1000000,
+      "max_notional": 100000000000
+    }
+  ]
+}
