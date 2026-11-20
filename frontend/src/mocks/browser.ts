@@ -5,10 +5,10 @@ import { balances, day, fills, listeners, markets, orders, push, pushed, session
 
 const fixed = (units: number, decimals: number) => (units / 10 ** decimals).toFixed(decimals);
 const INTERVALS: Record<string, number> = { "5s": 5000, "15s": 15000, "1m": 60000, "5m": 300000 };
-// The team grid (B's pairs.json): 6 quantity decimals, so a quote asset has 2 + 6 = 8.
+// The team grid (B's pairs.json): 6 quantity decimals, USDT 6 decimals.
 const QD = 6;
 const LOT: Record<string, string> = { "BTC-USDT": "0.0001", "ETH-USDT": "0.001" };
-const DEC: Record<string, number> = { USDT: 8, BTC: QD, ETH: QD, SOL: QD, NVDA: QD, AAPL: QD, ASML: QD, TSM: QD, RELIANCE: QD, GOLD: QD };
+const DEC: Record<string, number> = { USDT: 6, BTC: QD, ETH: QD, SOL: QD, NVDA: QD, AAPL: QD, ASML: QD, TSM: QD, RELIANCE: QD, GOLD: QD };
 
 function balance(asset: string): Balance {
   let b = balances.find((x) => x.asset === asset);
