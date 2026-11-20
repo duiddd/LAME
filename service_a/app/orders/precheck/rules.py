@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from fractions import Fraction
 
-from ...config import NotOnGrid, Symbol, to_units
+from ...config import NotOnGrid, Symbol, quote_amount, to_units
 from ...errors import AppError
 from ...market.cache import Snapshot
 
@@ -74,5 +74,5 @@ def check_market(sym: Symbol, side: str, snapshot: Snapshot | None, protection: 
 
 
 def check_notional(sym: Symbol, price: int, qty: int) -> None:
-    if price * qty > sym.max_notional:
+    if quote_amount(sym, price, qty) > sym.max_notional:
         raise refuse("NOTIONAL_TOO_LARGE", "The order's value is above the maximum for this pair")

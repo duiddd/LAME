@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from ...accounts.service import AccountsService, BalanceViolation, Ref
-from ...config import Catalog
+from ...config import Catalog, quote_amount
 from ...metrics import Metrics
 from ...ports import Clock
 from ...push.hub import Hub
@@ -179,7 +179,7 @@ class EventsService:
         if status not in ("CANCELLED", "REJECTED", "EXPIRED"):
             raise Poison("UNKNOWN_STATUS", f"ORDER_UPDATE status {status!r}")
         # One rule for all three: REJECTED with SELF_TRADE_PREVENTED can follow a partial fill.
-        keep = hold_amount(row.side, row.hold_price, filled - row.settled_qty)
+        keep = hold_amount(self._sym(row), row.side, row.hold_price, filled - row.settled_qty)
         held, asset = await self._release_to(conn, row, keep, str(n["notify_seq"]))
         await self._save(conn, row, applied, asset, status=status, reason=n.get("reason"), filled_qty=filled,
                          held_amount=held, cancel_requested=False, cancel_wanted=False)
@@ -188,7 +188,7 @@ class EventsService:
     async def _cancel_result(self, conn, row, n, applied) -> None:
         result = n.get("result")
         if result in ("TOMBSTONED", "ORDER_NOT_FOUND"):
-            keep = hold_amount(row.side, row.hold_price, row.filled_qty - row.settled_qty)
+            keep = hold_amount(self._sym(row), row.side, row.hold_price, row.filled_qty - row.settled_qty)
             held, asset = await self._release_to(conn, row, keep, str(n["notify_seq"]))
             await self._save(conn, row, applied, asset, status="CANCELLED", reason=result, held_amount=held,
                              cancel_requested=False, cancel_wanted=False)
@@ -203,7 +203,8 @@ class EventsService:
         if n.get("result") == "APPLIED" and not terminal:
             price = n.get("price") or row.price
             remaining = n["qty"]
-            target = hold_amount(row.side, price, remaining) + hold_amount(row.side, row.hold_price, unsettled)
+            sym = self._sym(row)
+            target = hold_amount(sym, row.side, price, remaining) + hold_amount(sym, row.side, row.hold_price, unsettled)
             held, asset = await self._release_to(conn, row, target, str(n["notify_seq"]))
             if held < target:
                 raise Poison("MODIFY_EXCEEDS_HOLD", f"{row.order_id}: needs {target}, holds {held}")
@@ -211,7 +212,7 @@ class EventsService:
                              held_amount=held, status="PARTIALLY_FILLED" if row.filled_qty else "PROCESSING")
             return
         remaining = 0 if terminal else row.qty - row.filled_qty
-        target = hold_amount(row.side, row.hold_price, remaining + unsettled)
+        target = hold_amount(self._sym(row), row.side, row.hold_price, remaining + unsettled)
         held, asset = await self._release_to(conn, row, target, str(n["notify_seq"]))
         fields = {"held_amount": held}
         if row.status == "MODIFYING":
@@ -243,18 +244,18 @@ class EventsService:
             raise Poison("ILLEGAL_TRANSITION", f"TRADE beyond filled on {row.order_id}")
         sym = self._sym(row)
         ref = Ref("trade", ref_id)
-        spend = hold_amount(row.side, row.hold_price, qty)
+        spend = hold_amount(sym, row.side, row.hold_price, qty)
         if row.side == "BUY":
-            improvement = qty * (row.hold_price - price)
-            if improvement < 0:
+            if price > row.hold_price:
                 raise BalanceViolation(f"{row.order_id}: trade at {price} above the hold price {row.hold_price}")
+            improvement = quote_amount(sym, row.hold_price - price, qty)
             await self._accounts.settle_spend(conn, row.user_id, sym.quote, spend, ref)
             if improvement:
                 await self._accounts.credit(conn, row.user_id, sym.quote, improvement, "PRICE_IMPROVEMENT", ref)
             await self._accounts.credit(conn, row.user_id, sym.base, qty, "SETTLE_BUY", ref)
         else:
             await self._accounts.settle_spend(conn, row.user_id, sym.base, spend, ref)
-            await self._accounts.credit(conn, row.user_id, sym.quote, qty * price, "SETTLE_SELL", ref)
+            await self._accounts.credit(conn, row.user_id, sym.quote, quote_amount(sym, price, qty), "SETTLE_SELL", ref)
         fields = {
             "settled_qty": row.settled_qty + qty,
             "spent": row.spent + qty * price,

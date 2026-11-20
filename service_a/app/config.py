@@ -1,6 +1,6 @@
 """Runtime settings from environment variables, and the symbol file A reads at start-up."""
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -74,6 +74,7 @@ class Symbol:
     min_qty: int
     max_qty: int
     max_notional: int
+    quote_scale: int = 1          # price units x quantity units per quote unit; set by load_catalog
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,17 @@ def from_units(units: int, decimals: int) -> str:
     return format(value, "f") if decimals else str(units)
 
 
+def quote_amount(sym: Symbol, price: int, qty: int) -> int:
+    """price x qty in the quote asset's smallest units. Exact for any price on the tick and any
+    quantity on the lot, which load_catalog checks; anything else is a bug, not a rounding case."""
+    # Every hold, settlement and value check goes through here, so no amount is ever rounded.
+    # 所有 hold、結算與名目金額檢查都經過這裡,金額從不四捨五入。
+    value, rest = divmod(price * qty, sym.quote_scale)
+    if rest:
+        raise ValueError(f"{sym.symbol}: {price} x {qty} is not a whole number of {sym.quote} units")
+    return value
+
+
 def load_catalog(path: str) -> Catalog:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     assets = {}
@@ -122,7 +134,13 @@ def load_catalog(path: str) -> Catalog:
         sym = Symbol(**s)
         if assets[sym.base].decimals != sym.qty_decimals:
             raise ValueError(f"{sym.symbol}: base decimals must equal qty_decimals")
-        if assets[sym.quote].decimals != sym.price_decimals + sym.qty_decimals:
-            raise ValueError(f"{sym.symbol}: quote decimals must equal price_decimals + qty_decimals")
-        symbols[sym.symbol] = sym
+        # The quote asset may have fewer decimals than price x qty, as long as one tick times one lot
+        # is still a whole number of quote units; then every price x qty on the grid is exact.
+        # 報價資產的小數位可少於 價格 x 數量,只要 1 tick x 1 lot 仍是整數個報價單位,網格上的金額就都精確。
+        shift = sym.price_decimals + sym.qty_decimals - assets[sym.quote].decimals
+        if shift < 0:
+            raise ValueError(f"{sym.symbol}: quote decimals exceed price_decimals + qty_decimals")
+        if (sym.tick * sym.lot) % 10 ** shift:
+            raise ValueError(f"{sym.symbol}: one tick times one lot is not a whole number of {sym.quote} units")
+        symbols[sym.symbol] = replace(sym, quote_scale=10 ** shift)
     return Catalog(assets, symbols)

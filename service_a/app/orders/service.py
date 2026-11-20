@@ -4,7 +4,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ..accounts.service import AccountsService, Ref
-from ..config import Catalog, Settings, Symbol, from_units
+from ..config import Catalog, Settings, Symbol, from_units, quote_amount
 from ..errors import AppError
 from ..market.cache import PriceCache
 from ..metrics import Metrics
@@ -27,8 +27,8 @@ def hold_asset(sym: Symbol, side: str) -> str:
     return sym.quote if side == "BUY" else sym.base
 
 
-def hold_amount(side: str, hold_price: int, qty: int) -> int:
-    return hold_price * qty if side == "BUY" else qty
+def hold_amount(sym: Symbol, side: str, hold_price: int, qty: int) -> int:
+    return quote_amount(sym, hold_price, qty) if side == "BUY" else qty
 
 
 class OrdersService:
@@ -107,7 +107,7 @@ class OrdersService:
             "price": priced.wire_price,
             "hold_price": priced.hold_price,
             "qty": qty,
-            "held_amount": hold_amount(body.side, priced.hold_price, qty),
+            "held_amount": hold_amount(sym, body.side, priced.hold_price, qty),
             "now": self._clock.now_ms(),
         }
 
@@ -254,7 +254,7 @@ class OrdersService:
         restore_status = row.status
         async with self._engine.begin() as conn:
             current = await repo.lock(conn, row.order_id)
-            needed = hold_amount(row.side, price, qty) + hold_amount(row.side, current.hold_price, current.filled_qty - current.settled_qty)
+            needed = hold_amount(sym, row.side, price, qty) + hold_amount(sym, row.side, current.hold_price, current.filled_qty - current.settled_qty)
             extra = max(0, needed - current.held_amount)
             modify_no = current.modify_no + 1
             if extra and not await self._accounts.hold(conn, row.user_id, asset, extra, Ref("order", f"{row.order_id}:{modify_no}")):

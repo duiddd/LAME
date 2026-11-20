@@ -1,16 +1,16 @@
 {
-  "_comment": "One integer unit follows B's match_engine/config/pairs.json (team decision 19 Nov): price_decimals 2, qty_decimals 6, and the same tick and lot as B and D. A quote asset's decimals must equal price_decimals + qty_decimals, so that price x qty is exact; hence USDT has 8. min_qty, max_qty and max_notional are A's own limits (100 BTC, 1000 ETH, 1,000,000 USDT per order).",
+  "_comment": "One integer unit follows B's match_engine/config/pairs.json (team decision 19 Nov): price_decimals 2, qty_decimals 6, USDT 6 decimals, and the same tick and lot as B and D. price x qty stays exact because one tick (0.01) times one lot (0.0001 BTC, 0.001 ETH) is a whole number of USDT units; the loader checks it. min_qty, max_qty and max_notional are A's own limits (100 BTC, 1000 ETH, 1,000,000 USDT per order).",
   "assets": {
-    "USDT": {"decimals": 8, "max_deposit": "1000000"},
+    "USDT": {"decimals": 6, "max_deposit": "1000000"},
     "BTC": {"decimals": 6, "max_deposit": "100"},
     "ETH": {"decimals": 6, "max_deposit": "1000"}
   },
   "symbols": [
     {"symbol": "BTC-USDT", "base": "BTC", "quote": "USDT", "tick": 1, "lot": 100,
      "price_decimals": 2, "qty_decimals": 6,
-     "min_qty": 100, "max_qty": 100000000, "max_notional": 100000000000000},
+     "min_qty": 100, "max_qty": 100000000, "max_notional": 1000000000000},
     {"symbol": "ETH-USDT", "base": "ETH", "quote": "USDT", "tick": 1, "lot": 1000,
      "price_decimals": 2, "qty_decimals": 6,
-     "min_qty": 1000, "max_qty": 1000000000, "max_notional": 100000000000000}
+     "min_qty": 1000, "max_qty": 1000000000, "max_notional": 1000000000000}
   ]
 }

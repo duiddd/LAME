@@ -128,5 +128,5 @@ The results of the 20 Nov run on the compose system are in `docs/submission/faul
 - Seeded users are `user<ID>`, with the password in `SEED_PASSWORD`. Set `SEED_BALANCES=false` to
   seed them without funds.
 - `config/symbols.json` follows B's `match_engine/config/pairs.json`: 6 quantity decimals, BTC lot
-  0.0001, ETH lot 0.001, USDT 8 decimals. `tests/test_pairs.py` checks the three files agree. A
+  0.0001, ETH lot 0.001, USDT 6 decimals. `tests/test_pairs.py` checks the three files agree. A
   change of units needs A's, B's and D's data reset together (`run_local.ps1 -Reset`).
