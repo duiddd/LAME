@@ -19,7 +19,7 @@
         { "refId": "A", "expr": "sum(rate(lame_a_http_request_duration_seconds_count[1m]))", "legendFormat": "Service A (HTTP)" },
         { "refId": "B", "expr": "sum(rate(lame_b_commands_total[1m]))", "legendFormat": "Service B (Commands)" },
         { "refId": "C", "expr": "sum(rate(lame_c_http_requests_total[1m]))", "legendFormat": "Service C (HTTP)" },
-        { "refId": "D", "expr": "sum(rate(lame_d_decisions_total[1m])) + sum(rate(lame_d_refused_total[1m]))", "legendFormat": "Service D (Orders)" }
+        { "refId": "D", "expr": "sum(rate(lame_d_decisions_total[1m])) + (sum(rate(lame_d_refused_total[1m])) or vector(0))", "legendFormat": "Service D (Orders)" }
       ]
     },
     {
@@ -29,10 +29,11 @@
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(lame_a_orders_total{result=~\"SYSTEM_BUSY|RISK_REJECTED|NO_FRESH_PRICE|REJECTED\"}[1m]))", "legendFormat": "Service A Order Errors" },
+        { "refId": "A", "expr": "sum(rate(lame_a_orders_total{result=~\"SYSTEM_BUSY|NO_FRESH_PRICE\"}[1m])) or vector(0)", "legendFormat": "Service A Orders Refused (D or B unavailable)" },
+        { "refId": "E", "expr": "sum(rate(lame_a_http_request_duration_seconds_count{status=~\"5..\"}[1m])) or vector(0)", "legendFormat": "Service A HTTP 5xx" },
         { "refId": "B", "expr": "rate(lame_b_bad_frames_total[1m]) + rate(lame_b_outbound_overflows_total[1m])", "legendFormat": "Service B Frame/Overflow Errors" },
         { "refId": "C", "expr": "sum(rate(lame_c_http_errors_total[1m]))", "legendFormat": "Service C HTTP 4xx/5xx" },
-        { "refId": "D", "expr": "sum(rate(lame_d_refused_total[1m]))", "legendFormat": "Service D 503 Refusals" }
+        { "refId": "D", "expr": "sum(rate(lame_d_refused_total[1m])) or vector(0)", "legendFormat": "Service D 503 Refusals" }
       ]
     },
     {
@@ -103,6 +104,39 @@
       "targets": [
         { "refId": "A", "expr": "lame_d_ready", "legendFormat": "D Ready" },
         { "refId": "B", "expr": "lame_b_md_subscribers", "legendFormat": "B MD Subscribers" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "state-timeline",
+      "title": "Service Up (Prometheus Scrape)",
+      "description": "Whether Prometheus could scrape each service's /metrics. A red stretch is an outage.",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }]
+        },
+        "overrides": []
+      },
+      "options": { "showValue": "never", "mergeValues": true, "legend": { "showLegend": false } },
+      "targets": [
+        { "refId": "A", "expr": "max by (job) (up)", "legendFormat": "{{job}}" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Settlement Pipeline (A <- D outbox)",
+      "description": "Notifications waiting in D's outbox for A, A's orders sent without a reply (funds held), and A's finished orders still waiting for a trade. All should return to 0.",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "lame_d_outbox_backlog", "legendFormat": "D notifications waiting for A" },
+        { "refId": "B", "expr": "sum(lame_a_orders_by_status{status=\"UNKNOWN\"}) or vector(0)", "legendFormat": "A orders in doubt (UNKNOWN)" },
+        { "refId": "C", "expr": "lame_a_orders_unsettled", "legendFormat": "A finished orders not yet settled" }
       ]
     }
   ]
