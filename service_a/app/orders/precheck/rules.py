@@ -11,6 +11,12 @@ def refuse(reason: str, message: str) -> AppError:
     return AppError(400, reason, message)
 
 
+def unavailable(reason: str, message: str) -> AppError:
+    # A dependency is down, not the user's input: 503, so that A's errors are exactly its 5xx answers.
+    # 是依賴服務故障,不是使用者輸入錯誤:回 503,讓 A 的錯誤恰好等於它的 5xx 回應。
+    return AppError(503, reason, message)
+
+
 def parse_price(sym: Symbol, text: str) -> int:
     try:
         price = to_units(text, sym.price_decimals)
@@ -46,7 +52,7 @@ class Priced:
 
 def check_limit(sym: Symbol, price: int, snapshot: Snapshot | None, band: float) -> Priced:
     if snapshot is None:
-        raise refuse("NO_FRESH_PRICE", "Market data is interrupted")
+        raise unavailable("NO_FRESH_PRICE", "Market data is interrupted")
     reference = snapshot.reference
     # With a fresh feed and no price at all (start of day), the band is skipped, or nobody could
     # ever place the first order.
@@ -61,7 +67,7 @@ def check_market(sym: Symbol, side: str, snapshot: Snapshot | None, protection: 
     overdraw, so it stays a true market order.
     """
     if snapshot is None:
-        raise refuse("NO_FRESH_PRICE", "Market data is interrupted")
+        raise unavailable("NO_FRESH_PRICE", "Market data is interrupted")
     factor = Fraction(str(protection))
     if side == "BUY":
         if snapshot.best_ask is None:

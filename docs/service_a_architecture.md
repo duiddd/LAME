@@ -24,7 +24,7 @@ a 15 minute access token and a 7 day refresh token.
 | `GET /healthz`, `/metrics` | Exposes readiness information (database, background tasks, circuit breaker, load shedding) and Prometheus-compatible metrics. |
 
 A refusal response includes a specific reason, such as `INSUFFICIENT_BALANCE`, `PRICE_OUT_OF_BAND`, or `NO_FRESH_PRICE`.
-Other possible reasons include `INVALID_LOT` or `SYSTEM_BUSY`. A successful placement returns HTTP `202`; HTTP `503` is returned only if the request did not reach Service D.
+Other possible reasons include `INVALID_LOT` or `SYSTEM_BUSY`. A successful placement returns HTTP `202`; HTTP `503` is returned only if the request did not reach Service D or Service B’s market data is stale (`NO_FRESH_PRICE`), so A’s 5xx answers are exactly its errors.
 Write endpoints accept only JSON payloads and reject requests with a foreign `Origin`. Cross-Origin Resource Sharing (CORS) is not enabled.
 
 **Interfaces to other services:**
@@ -133,7 +133,7 @@ A notification that would violate a rule results in a `422` response and halts f
 | D slow | Load shedding: if the p99 time from sending to D’s first outcome stays above 1 s for three checks in a 30 s window, new orders get `503` until it falls below 80% |
 | Accepted, then silent | Queried at D after 10, 20, 40 s, then every 60 s; a missed notification is resent with `rewind`. A query never moves funds |
 | A crashes | `PENDING` orders become `UNKNOWN`; D resends what A did not confirm |
-| B’s feed silent for 3 s | Orders refused `NO_FRESH_PRICE` |
+| B’s feed silent for 3 s | Orders refused `503 NO_FRESH_PRICE` |
 | C down | Only the chat and news panels show “unavailable” |
 
 The following operations are strongly consistent, each executed within a single PostgreSQL transaction: registration, deposits, balances, holds, and order acceptance.
@@ -150,8 +150,8 @@ orders remain frozen. This approach ensures that settlement never occurs against
 `lame_a_md_age_seconds{symbol}`.
 
 The team dashboard (implemented using Grafana with Prometheus as the data source, and the frontend’s `/dashboard` page from Service C’s aggregator) derives its metrics from these sources.
-The monitored metrics include A’s request rate (measured by the request counter), errors (orders refused due to unavailability of D or B),
-HTTP 5xx errors as indicated by the status label, p95 latency for both requests and order completion, breaker and shedding events,
+The monitored metrics include A’s request rate (measured by the request counter), errors (HTTP 5xx as indicated by the status label,
+which include orders refused due to unavailability of D or B), p95 latency for both requests and order completion, breaker and shedding events,
 and settlement pipeline metrics, including D’s outbox backlog and A’s orders that are in doubt or unsettled. The error rate displayed on the page represents
 the total since A was started, rather than a recent or rolling rate.
 

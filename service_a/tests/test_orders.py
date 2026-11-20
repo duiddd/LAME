@@ -8,7 +8,7 @@
 | test_size_and_grid_refusals | Each violation has its own reason | Bad price, qty, symbol -> reason, nothing sent |
 | test_notional_limit | The value limit applies | price x qty over the maximum -> NOTIONAL_TOO_LARGE |
 | test_insufficient_balance | Overdraw is refused atomically | Too large -> refused; order rolled back |
-| test_stale_market_refuses_both_types | No fresh price, no orders | 3 s silence -> NO_FRESH_PRICE for limit and market |
+| test_stale_market_refuses_both_types | No fresh price, no orders; it is a dependency failure | 3 s silence -> 503 NO_FRESH_PRICE for limit and market, counted as a 5xx, nothing sent |
 | test_heartbeat_keeps_market_fresh | A quiet market is not stale | Repeated last_ms keeps accepting |
 | test_price_band | Obvious typos are stopped | Beyond 10% -> PRICE_OUT_OF_BAND; exactly 10% passes |
 | test_first_order_of_the_day | An empty market can start | No price, fresh feed -> limit accepted, market NO_LIQUIDITY |
@@ -104,12 +104,15 @@ async def test_insufficient_balance(client, fake_d, market):
 
 
 @pytest.mark.parametrize("kw", [{"type": "LIMIT"}, {"type": "MARKET", "price": None}])
-async def test_stale_market_refuses_both_types(client, clock, market, kw):
+async def test_stale_market_refuses_both_types(client, clock, market, kw, fake_d):
     # Purpose: with a silent feed, neither order type can pass the price check.
     await funded_user(client)
     clock.advance(3001)
     r = await place(client, **kw)
-    assert r.status_code == 400 and r.json()["reason"] == "NO_FRESH_PRICE"
+    assert r.status_code == 503 and r.json()["reason"] == "NO_FRESH_PRICE"
+    assert fake_d.placed == []
+    metrics = (await client.get("/metrics")).text                # the dashboard counts A's errors as 5xx
+    assert 'lame_a_http_request_duration_seconds_count{endpoint="/api/orders",method="POST",status="503"} 1.0' in metrics
 
 
 async def test_heartbeat_keeps_market_fresh(client, container, clock, market):
