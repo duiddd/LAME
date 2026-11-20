@@ -14,7 +14,7 @@ acknowledges receipt. Every outcome — D's risk decision, B's acceptance, each 
 comes back as a notification D pushes to `POST /internal/order-events`, one at a time, in a
 contiguous `notify_seq`. A never talks to B's command channel; it only reads B's public market
 data to price-check orders. A runs as one process with one worker, because its rate limiter,
-circuit breaker and shedding window live in memory (tech decision D2).
+circuit breaker and shedding window live in memory (architecture section 8).
 
 ## Consistency (≈ ½ page)
 

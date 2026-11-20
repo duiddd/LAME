@@ -1,7 +1,7 @@
 # Service A — Trading & Accounts
 
 The user-facing entry point: users, balances, holds, orders, settlement from D's notifications,
-candles and the event stream. Design: `docs/service_a_architecture.md`, `docs/service_a_tech_decisions.md`.
+candles and the event stream. Design, with the reason for each decision: `docs/service_a_architecture.md`.
 
 ## Layout
 
