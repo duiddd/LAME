@@ -1,49 +1,38 @@
-# ADR-003: Decouple the AI Market Analyst (Service C) Off the Critical Trading Path via Asynchronous Ingestion and Read-Only Snapshots
+# ADR-003 — The AI analyst (C) stays off the trading path, fed by asynchronous ingestion and read-only snapshots
 
-**Status:** Accepted
-**Date:** 2026-11-18
-**Owner:** Rushabh Mutha (Service C), aligned with Pin-Yun Kuo (A), Bo Wu (B), and Zongyan Yang (D)
+**Status:** accepted
 
----
+**Context.** LAME pairs the exchange (A → D → B) with an AI market analyst (C) that ingests news and answers
+questions by retrieval-augmented generation over a local Ollama model (`llama3.2:1b`). The trading path needs
+deterministic replay and a low order latency, while an LLM call takes from 0.4 s to past a 3 s timeout. Balance
+holds in A are consistency-critical (`available >= 0`); market commentary can lag if it says by how much. News
+items and user questions are untrusted text (prompt injection, malformed JSON) and must not share a failure
+domain or a schema with A's ledger or B's journal.
 
-## Context
+This decision would reopen if the AI were to score orders inside D's pre-trade gate, or if orders had to be
+blocked while news ingestion lags.
 
-LAME pairs a spot exchange (`A: Trading & Accounts` → `D: Risk Control` → `B: Matching Engine`) with a generative AI Market Analyst (`C`) that ingests news and answers user questions via RAG over local `Ollama` (`llama3.2:1b`). Three load-bearing constraints govern this boundary:
+**Decision.** Verdict: accept. Rushabh Mutha decided that C (`:8080`) is a separate architecture quantum off the
+trading path: A, D and B never call C synchronously. C owns its store (SQLite WAL with an FTS5 BM25 index and an
+atomic `index_version`). News arrives through RabbitMQ (`news.direct` → `news_tasks`), deduplicated on
+`news_id`, with malformed items sent to a dead-letter queue (`news.dlq`) instead of being retried. C follows
+B's `/md/<symbol>` snapshots read-only and marks its data stale after 3 s of silence. The frontend embeds C with
+a fallback, and C caps each model call at 3 s and refuses injections and evidence-free questions before calling
+the model. The trade-off is fault isolation over a smaller deployment. Embedding RAG in A was rejected because it
+would put 3 s model calls and untrusted text next to the balance holds; C calling A and B synchronously per
+question because a burst of chat would load the trading services; a saga across the trading path because C
+writes nothing that would need compensating.
 
-1. **Latency & Determinism:** `A → D → B` requires deterministic crash replay and low `p99` order latency, whereas LLM inference shows high variance (`0.4 s` to `>3.0 s` timeout).
-2. **Heterogeneous Consistency:** Balance holds in `A` require **CP** invariants (`available >= 0`), whereas market commentary tolerates **AP** eventual consistency with explicit freshness labels.
-3. **Trust & Fault Isolation:** News streams and user queries carry untrusted text (prompt-injection and malformed JSON risks) that cannot share a failure domain or schema with `A`'s PostgreSQL ledger or `B`'s `events-<day>.db`.
+**Consequences.**
 
-*Flip conditions:* Revisit only if business scope adds AI pre-trade risk scoring to `D`'s critical path, or mandates blocking spot orders when news ingestion lags.
-
----
-
-## Decision
-
-We isolate **Service C (`:8080`)** as a **separate architecture quantum off the critical trading path**, enforcing zero synchronous calls from `A`, `D`, or `B` into `C`:
-
-1. **Private Search Store:** `C` owns an isolated SQLite WAL database (`/data/news_c.db`) with FTS5 BM25 indexing and atomic `index_version`, sharing zero tables with peers.
-2. **Async Ingestion & DLQ:** News payloads travel via RabbitMQ (`news.direct` → `news_tasks`), deduplicated idempotently on `news_id`; malformed payloads route via `nack(requeue=False)` (`news.dlx` → `news.dlq`).
-3. **Passive Snapshot Stream:** `C` subscribes read-only to `B`'s `/md/<symbol>` WebSocket into `MarketDataCache`, dropping `ts_ms < existing`, refreshing liveness on unchanged snapshot resends (same `last_ms`, no `heartbeat` flag), resetting watermarks on reconnect, and flagging `is_stale = true` after `3.0 s` of silence.
-4. **Bounded Guardrails & Spend:** `A`'s UI calls `C` asynchronously via REST/widget with fallback; `C` caps Ollama at `3.0 s` and short-circuits pre-LLM on injections (`REJECTED_UNSAFE`) or empty FTS5 hits (`INSUFFICIENT_EVIDENCE`).
-
----
-
-## Consequences
-
-**Positive (assessed against constraints)**
-- **Zero trading-path tax:** Killing `service-c` or `ollama` adds **0 ms** latency to `A → D → B`; matching and settlement stay **100% available**.
-- **Bounded failure & token spend:** Poison JSON isolates in `news.dlq` (`0` stalls); `3.0 s` caps prevent worker starvation, and pre-LLM refusal gates avoid unnecessary token evaluation (`lame_c_tokens_saved_by_gates_total`).
-- **Contained blast radius:** Prompts and injection regexes (`security.py`) evolve independently, confining injection attempts to read-only answers (`30/30` integration checks pass).
-
-**Negative (knowingly accepted trade-offs)**
-- **Eventual consistency lag:** Explanations lag live trades by ingestion delay plus up to `3.0 s` snapshot staleness (mitigated via `data_freshness_seconds`, `news_freshness_seconds`, and `index_version`).
-- **Operational footprint:** Adds SQLite FTS5, RabbitMQ, Ollama containers, and duplicated symbol normalization rather than shared libraries.
-
----
-
-## Alternatives Considered
-
-- **Embed RAG in Service A:** Eliminates a container, but mixes `3 s` LLM threads and untrusted inputs with PostgreSQL balance holds.
-- **Synchronous REST from C to A/B per question:** Avoids `MarketDataCache`, but couples chat traffic bursts onto `B` and `A`.
-- **Orchestrated Saga on trading path:** Unneeded coordination cost for read-only explanations with no compensating writes.
+- The trading path does not depend on C, against its latency budget: stopping C or Ollama adds no latency and no
+  errors to A → D → B, and on 20 Nov all three trading faults degraded and recovered with C answering throughout.
+- A poison news item stops nothing, against the rule that ingestion must keep flowing: malformed payloads land in
+  `news.dlq` (one there during the 20 Nov runs) while ingestion continues.
+- Model spend and pinned workers stay bounded, against the zero-cost and responsiveness constraints: the 3 s cap
+  frees a worker in the worst case, and refusals before the model are counted as tokens saved
+  (`lame_c_tokens_saved_by_gates_total`: 4,900 since C started, by 02:19 on 20 Nov, with every question refused).
+- Answers can lag the market, against the requirement that commentary states its age: up to ingestion delay plus
+  3 s of snapshot staleness, reported as `data_freshness_seconds`, `news_freshness_seconds` and `index_version`.
+- The deployment grows, against a laptop-sized footprint: RabbitMQ, Ollama (about 2 GB of memory) and C's own
+  store, plus symbol normalisation duplicated in C rather than shared.

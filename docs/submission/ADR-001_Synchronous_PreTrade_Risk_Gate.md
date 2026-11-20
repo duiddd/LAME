@@ -1,47 +1,40 @@
-# ADR-001: Synchronous Pre-Trade Risk Gate (Service D) Failing Closed on the Critical Path
+# ADR-001 — A synchronous rule-based risk gate (D) sits between A and B and fails closed
 
-**Status:** Accepted
-**Date:** 2026-11-18
-**Owners:** Zongyan Yang (Service D) & Team LAME (Pin-Yun Kuo, Bo Wu, Rushabh Mutha)
+**Status:** accepted
 
----
+**Context.** LAME must stop self-trading (R1) and wash trading between linked accounts (R2). Once an order
+reaches B and trades, the fill is final: ownership cannot be unwound without breaking price-time priority for
+the counterparty. B replays its daily journal (`events-<day>.db`) bit for bit after a crash and accepts only one
+command connection (`/d`), so whatever checks orders must sit in front of B, be deterministic and fit that
+single connection. Under overload or failure the gate must either let unchecked orders through (fail open) or
+refuse them (fail closed).
 
-## Context
+This decision would reopen if, under the target bot traffic, load shedding refused more legitimate orders than
+the demo can accept; or if B gained several command channels and a way to reverse a trade after the fact.
 
-LAME must prevent self-trading (**R1**) and wash trading across seeded linked accounts (**R2**) on a deterministic price-time spot exchange (`A: Trading & Accounts` → `D: Risk Control` → `B: Matching Engine`). Three load-bearing constraints govern how risk checks attach to the order path:
+**Decision.** Verdict: accept. Zongyan Yang decided that D (`:8400`) is a single-instance, synchronous,
+rule-based gate between A and B, and that every trading command (new, cancel, modify) goes through it. R1 and R2
+read no clock, no randomness and no I/O, only the order, D's in-memory view of the book and
+`linked_accounts.json`; each decision is stored with `(decision_no, features_seq, rule_version)` before the
+order goes to B. D answers `202` once it has stored an order, or refuses at once (`503 RISK_UNAVAILABLE` /
+`RISK_BUSY`, nothing stored), and reports every outcome through its notification outbox. Under load D keeps
+both rules: a queue of 1,000 and a 500 ms gate deadline (`RISK_TIMEOUT`), with A shedding new orders when its
+latency budget is exceeded. The trade-off is integrity over availability. Post-trade surveillance was rejected
+because a self or wash trade would already be final when found; an ML or LLM classifier because its latency
+and drift break replay; dropping to R1 only under load because it opens the wash-trading window exactly when an
+attacker floods the gate.
 
-1. **Zero Unauthorized Matches:** Once an order enters `B`'s matching thread and trades, spot ownership changes cannot be cleanly unwound without breaking price-time finality for counterparties.
-2. **Deterministic Replay & Latency Budget:** `B` guarantees bitwise reproducible crash replay from daily SQLite journals (`events-<day>.db`). Adding a non-deterministic AI risk model (hundreds of milliseconds, stochastic outputs) on the critical path violates replay determinism and stalls `p99`. Meanwhile `B` accepts only **one** upstream command WebSocket (`/d`).
-3. **Failure Behaviour & Degraded Mode:** At overload or gate failure, the system must choose between allowing unvetted manipulation (**fail-open**) or blocking orders (**fail-closed**).
+**Consequences.**
 
-*Flip conditions:* Revisit only if measured load shedding under target bot traffic rejects more legitimate orders than acceptable (or if `B` introduces multi-tenant command channels and post-trade reversal compensation).
-
----
-
-## Decision
-
-We place **Service D (`:8400`)** as a **single-instance, synchronous, rule-based pre-trade gate** directly between `A` and `B`, keeping all trading commands (`new`, `cancel`, `modify`) routed exclusively through `D`:
-
-1. **Deterministic Pure Rules (`R1`, `R2`):** Rules read no system clock, no randomness, and no I/O — operating only on `(order, full in-memory book view + linked_accounts, rule_version)`. Every decision persists `(decision_no, features_seq, rule_version)` in SQLite WAL before forwarding to `B`.
-2. **Fast `202` Ack + Ordered Notification Outbox:** `D` stores valid orders (`202` received) or refuses immediately (`503 RISK_UNAVAILABLE` / `RISK_BUSY` with **no** database record). Decisions and `B` events stream back to `A` via `D`'s durable notification outbox (`notify_seq`).
-3. **Fail-Closed & Load Shedding (Degraded Mode):** `D` enforces a strict queue (`DECISION_QUEUE_CAP = 1000`) and gate deadline (`500 ms` → `RISK_TIMEOUT`), and **never disables R2 (wash trading)** under load; instead, `A` sheds excess traffic when recent `p99` exceeds budget.
-
----
-
-## Consequences
-
-**Positive (assessed against constraints)**
-- **Pre-match integrity & replayability:** Approved orders reach `B` at most once (via `(user_id, order_id)` idempotency); `R1`/`R2` decisions replay deterministically (`d/replay.py`).
-- **Predictable low overhead:** Standalone decision `p99` measured `1 ms` at `200 orders/s` and `2 ms` at `1,000 orders/s`; `A` circuit-breaker open refusals drop from `580–598 ms` to `15–18 ms` during `D` outages.
-
-**Negative (knowingly accepted trade-offs)**
-- **Single-point availability coupling:** Killing `D` halts new orders, cancels, modifies, and settlement pushes from `B` until `D` restarts and catches up (`4.2 s` D catch-up + `9.0 s` A breaker recovery measured).
-- **Conservative limit-order false positives:** Judging crossing limit prices without full queue simulation occasionally blocks legitimate linked-account trades (reported openly in `d/evaluate.py`).
-
----
-
-## Alternatives Considered
-
-- **Asynchronous post-trade surveillance:** Removes `D` from critical-path latency, but malicious self/wash trades execute irreversibly in `B` before detection.
-- **ML/LLM risk classifier inside D:** Catches subtler patterns, but adds `>100 ms` latency variance and non-deterministic decision drift incompatible with replay auditing.
-- **Shed to R1-only during overload:** Preserves throughput during spikes, but exposes precisely the linked-account wash-trading window when attackers flood the gate.
+- No unchecked order reaches B, against the rule that fills are final: an approved order is sent to B at most
+  once and a rejected one never (`(user_id, order_id)` idempotency). On 20 Nov an order A sent three times
+  during an 8 s outage was stored once and reached B once, and a self-trade was rejected with its hold released.
+- The gate costs little time, against A's 1 s shedding threshold: decision p99 was 1 ms at 200 orders/s and
+  2 ms at 1,000 orders/s in D's standalone load test (`tools/loadtest.py`).
+- While D is down nobody can place, cancel or modify, and settlement waits, against the fail-closed rule: with
+  D killed for about 49 s on 20 Nov, A refused every new order in a median 24 ms with nothing held, and accepted
+  again 1.2 s after D was ready.
+- A slow D rejects rather than queues, against the 500 ms deadline: with 2 s added to each decision, D rejected
+  the late orders `RISK_TIMEOUT` and A shed new orders within 4.8 s, so no order waited on a stale decision.
+- Judging crossing limit prices without simulating the queue can refuse a legitimate trade between linked
+  accounts, against the goal of blocking only manipulation; `d/evaluate.py` reports these cases.
