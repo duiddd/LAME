@@ -128,9 +128,9 @@
     text-transform: uppercase;
   }
 
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
-  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
-  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 6px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; break-inside: avoid; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; break-inside: avoid; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 6px; break-inside: avoid; }
 
   .card {
     background: #ffffff;
@@ -357,7 +357,7 @@
     <tr><td><strong>Lost notification</strong></td><td>D fault skipped <code>notify_seq 716</code></td><td>Order stayed <code>SENT</code>; arrival of <code>717</code> drew A's <code>409 {"expected_seq": 716}</code>; D rewound outbox &amp; re-sent; cursors aligned at <code>717 = 717</code>.</td></tr>
     <tr><td><strong>A crash vs. D outbox</strong></td><td>3 orders sent; A killed; D decided while down</td><td>D outbox buffered all <code>3</code> <code>RISK_REJECTED (RISK_TIMEOUT)</code> items; A started in <code>6 s</code>, ready <code>16.2 s</code>, backlog drained at <code>20.1 s</code>; holds = <code>0</code>; cursors <code>724 = 724</code>.</td></tr>
     <tr><td><strong>No reply &le; 5 s window</strong></td><td>D paused <code>3 s</code> during <code>POST /v1/orders</code></td><td>A returned <code>202 UNKNOWN</code> after 2 s call timeout, keeping <code>47.500000 USDT</code> held; <code>1.3 s</code> after thaw, order settled to <code>PROCESSING</code>; D held <code>1</code> copy.</td></tr>
-    <tr><td><strong>No reply &gt; 5 s window</strong></td><td>D paused <code>8 s</code> during <code>POST /v1/orders</code></td><td>A resent same <code>order_id</code> <code>3</code> times then issued cancel; <code>1.2 s</code> after thaw order finished <code>CANCELLED</code> with <code>0</code> held; D/B processed <code>1</code> copy total.</td></tr>
+    <tr><td><strong>No reply &gt; 5 s window</strong></td><td>D paused <code>8 s</code> during <code>POST /v1/orders</code></td><td>A resent same <code>order_id</code> <code>3</code> times then, past the <code>5 s</code> window, cancelled via <code>D &rarr; B &rarr; CANCELLED</code>; <code>1.2 s</code> after thaw hold returned to <code>0</code> (D/B processed <code>1</code> order copy total; no tombstone created because D had received the order — D leaves a tombstone only if it never got the order).</td></tr>
     <tr><td><strong>Final Books Audit</strong></td><td>Full SQL audit across all <code>253</code> orders</td><td>Unexplained balances: <code>0</code> · Hold mismatches: <code>0</code> · Closed still holding: <code>0</code> · Orders in doubt: <code>0</code> · Asset deviations: <code>0</code> · Cursor <code>730 = 730</code>.</td></tr>
   </tbody>
 </table>
