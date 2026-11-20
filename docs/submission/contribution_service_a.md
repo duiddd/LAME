@@ -10,7 +10,7 @@ notifications effectively once, reconciliation of unanswered orders, candles and
 summary, the per-user event stream, metrics, and A's container and compose file.
 
 **Decisions owned:** ADR-002 (funds held until D's notification settles the order); A's technical
-decisions in `docs/service_a_architecture.md` section 18, including sending a market buy as a capped
+decisions in `docs/service_a_architecture.md` section 8, including sending a market buy as a capped
 limit order and limiting a modify to the remaining quantity.
 
 **Integration and testing:** the contract A requires from D's notifications (A architecture
