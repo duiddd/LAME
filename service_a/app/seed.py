@@ -1,4 +1,4 @@
-"""Demo users and the users in linked_accounts.json, with starting balances. Deterministic.
+"""Demo users and the users in linked_accounts.json, with starting balances, and the admin. Deterministic.
 
 Bots log in as these users through the public API. Seeded users keep the IDs in the shared file,
 because D's wash-trading rule reads the same IDs.
@@ -15,6 +15,10 @@ from .config import Catalog, to_units
 from .ports import Clock
 
 DEMO_IDS = [1001, 1002, 1003, 1004]
+# The operator account that may see the system dashboard; it trades nothing, so it gets no balances.
+# If "admin" was registered by someone first, the seed skips it: a name never grants the role.
+# 可看系統 dashboard 的維運帳號;不交易,所以沒有餘額。若 "admin" 已被他人註冊,seed 會略過:名稱不會帶來權限。
+ADMIN_ID, ADMIN_NAME = 1000, "admin"
 START_BALANCES = {"USDT": "1000000", "BTC": "100", "ETH": "1000"}
 
 
@@ -31,10 +35,13 @@ async def seed(engine: AsyncEngine, accounts: AccountsService, passwords: Passwo
         for user_id in seeded_users(linked_accounts_file):
             if not await auth_repo.user_exists(conn, user_id):
                 missing.append(user_id)
-    if not missing:
+        admin_missing = not await auth_repo.user_exists(conn, ADMIN_ID)
+    if not missing and not admin_missing:
         return
     password_hash = await passwords.hash(password)
     async with engine.begin() as conn:
+        if admin_missing:
+            await auth_repo.insert_seeded_user(conn, ADMIN_ID, ADMIN_NAME, password_hash, clock.now_ms(), role="ADMIN")
         for user_id in missing:
             if await auth_repo.insert_seeded_user(conn, user_id, f"user{user_id}", password_hash, clock.now_ms()) and with_balances:
                 for asset, amount in START_BALANCES.items():

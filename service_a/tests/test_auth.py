@@ -15,12 +15,19 @@
 | test_foreign_origin_is_refused | Another site cannot act with the user's cookies | Foreign Origin -> 403; no Origin (a bot) -> allowed |
 | test_body_must_be_json | Cross-site form posts are refused | Form body -> 415 |
 | test_login_flood_is_shed | A flood cannot exhaust the hashing capacity | All slots busy -> 429 at once |
+| test_role_reaches_the_browser | The frontend can tell an admin from a user | Registered user -> USER in register and /me; seeded admin -> ADMIN in login and /me |
+| test_refresh_keeps_the_role | The role survives the 15-minute token | Admin's access expires, refresh -> /me still ADMIN |
+| test_admin_name_is_not_a_role | Nobody becomes admin by choosing the name | Register "admin" -> 409; the seeded admin keeps ID 1000 |
+| test_token_without_a_known_role_is_a_user | Old or tampered role claims grant nothing | Token without role, or role "ROOT" -> USER |
 """
 import asyncio
 
 from sqlalchemy import text
 
+import jwt
+
 from app.auth.deps import ACCESS_COOKIE, REFRESH_COOKIE
+from app.auth.tokens import ALGORITHM
 from tests.conftest import sign_up
 
 CREDS = {"username": "amy_trader", "password": "correct-horse-1"}
@@ -152,3 +159,43 @@ async def test_login_flood_is_shed(client, container):
     assert r.status_code == 429 and r.json()["reason"] == "RATE_LIMITED"
     for _ in taken:
         slots.release()
+
+
+ADMIN = {"username": "admin", "password": "lame-demo-password"}      # seeded with SEED_PASSWORD's default
+
+
+async def test_role_reaches_the_browser(client):
+    # Purpose: the role the dashboard link depends on is in every answer that describes the user.
+    user = await sign_up(client)
+    assert user["role"] == "USER" and (await client.get("/api/auth/me")).json()["role"] == "USER"
+    client.cookies.clear()
+    r = await client.post("/api/auth/login", json=ADMIN)
+    assert r.status_code == 200 and r.json() == {"user_id": 1000, "username": "admin", "role": "ADMIN"}
+    assert (await client.get("/api/auth/me")).json()["role"] == "ADMIN"
+
+
+async def test_refresh_keeps_the_role(client, clock):
+    # Purpose: a refreshed access token carries the role from the database, not a default.
+    await client.post("/api/auth/login", json=ADMIN)
+    clock.advance(16 * 60 * 1000)
+    assert (await client.get("/api/auth/me")).status_code == 401
+    assert (await client.post("/api/auth/refresh")).status_code == 204
+    assert (await client.get("/api/auth/me")).json()["role"] == "ADMIN"
+
+
+async def test_admin_name_is_not_a_role(client, container):
+    # Purpose: registering the name "admin" is refused, and only the seeded row holds the role.
+    r = await client.post("/api/auth/register", json={"username": "admin", "password": "another-pass-1"})
+    assert r.status_code == 409 and r.json()["reason"] == "USERNAME_TAKEN"
+    async with container.engine.connect() as conn:
+        admins = (await conn.execute(text("SELECT user_id FROM users WHERE role = 'ADMIN'"))).scalars().all()
+    assert admins == [1000]
+
+
+async def test_token_without_a_known_role_is_a_user(container, clock):
+    # Purpose: a token issued before roles existed, or a forged claim, never yields ADMIN.
+    secret, now = container.settings.jwt_secret, clock.now_ms() // 1000
+    base = {"sub": "100000", "name": "amy_trader", "iat": now, "exp": now + 900}
+    for claims in (base, {**base, "role": "ROOT"}):
+        principal = container.tokens.verify_access(jwt.encode(claims, secret, algorithm=ALGORITHM))
+        assert principal is not None and principal.role == "USER"

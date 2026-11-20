@@ -23,7 +23,7 @@ def set_cookies(response: Response, session: Session, c: Container) -> None:
 async def register(body: Credentials, response: Response, c: Container = Depends(get_container)):
     session = await c.auth.register(body.username, body.password)
     set_cookies(response, session, c)
-    return UserOut(user_id=session.user_id, username=session.username)
+    return UserOut(user_id=session.user_id, username=session.username, role=session.role)
 
 
 @router.post("/login", response_model=UserOut)
@@ -35,7 +35,7 @@ async def login(body: Credentials, response: Response, c: Container = Depends(ge
             c.metrics.auth_failures.inc()
         raise
     set_cookies(response, session, c)
-    return UserOut(user_id=session.user_id, username=session.username)
+    return UserOut(user_id=session.user_id, username=session.username, role=session.role)
 
 
 @router.post("/refresh", status_code=204)
@@ -53,4 +53,4 @@ async def logout(request: Request, response: Response, c: Container = Depends(ge
 
 @router.get("/me", response_model=UserOut)
 async def me(user: Principal = Depends(current_user)):
-    return UserOut(user_id=user.user_id, username=user.username)
+    return UserOut(user_id=user.user_id, username=user.username, role=user.role)

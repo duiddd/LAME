@@ -20,7 +20,7 @@ All amounts on the API are decimal strings; inside A they are integers (D8). Log
 | `/api/auth/register` | `POST` | `username`, `password`. No email or other personal data |
 | `/api/auth/login` | `POST` | `username`, `password` → sets the access and refresh cookies |
 | `/api/auth/refresh` | `POST` | Rotates the refresh token and issues a new access token; reuse of a spent refresh token revokes its whole family |
-| `/api/auth/me` | `GET` | The signed-in user |
+| `/api/auth/me` | `GET` | The signed-in user, with the role (`USER` or `ADMIN`) |
 | `/api/auth/logout` | `POST` | Revokes the refresh token family and clears both cookies; an access token already copied elsewhere stays valid until it expires (at most 15 minutes) |
 | `/api/accounts/me` | `GET` | Available, held and total balance per asset (also the "holdings" tab) |
 | `/api/accounts/deposits` | `POST` | Simulated deposit: `asset`, `amount`, `Idempotency-Key` header. Credited at once (D26) |
@@ -225,7 +225,7 @@ Tables (illustrative, not final):
 
 | Table | Purpose | Key constraints |
 | --- | --- | --- |
-| `users(user_id, username, password_hash, created_at)` | Registered and seeded users. `user_id` is a `BIGINT`, because D and B need an integer. Seeded users keep the IDs in `linked_accounts.json`; registered users get IDs from 100000 upwards | `UNIQUE (username)` |
+| `users(user_id, username, password_hash, created_at, role)` | Registered and seeded users. `user_id` is a `BIGINT`, because D and B need an integer. Seeded users keep the IDs in `linked_accounts.json`; registered users get IDs from 100000 upwards. `role` is `USER`, or `ADMIN` for the seeded operator account `admin` (ID 1000); registering never grants it | `UNIQUE (username)`; `CHECK (role IN ('USER', 'ADMIN'))` |
 | `refresh_tokens(token_hash, family_id, user_id, expires_at, used_at, revoked_at)` | Refresh token rotation and reuse detection (D20) | `PRIMARY KEY (token_hash)`; only the hash is stored |
 | `accounts(user_id, asset, available, held)` | Current balances | `CHECK (available >= 0 AND held >= 0)` |
 | `ledger_entries(id, user_id, asset, delta_available, delta_held, reason, ref_type, ref_id, created_at)` | Every balance change (deposit, hold, release, settle) | Append-only; `UNIQUE (ref_type, ref_id, user_id, asset, reason)` makes each effect idempotent. `ref` is the deposit, the trade `(b_day, b_seq)`, the `notify_seq`, or for a hold the order and its modification number, so that repeated modifications of one order do not collide |
@@ -402,7 +402,7 @@ Routes: `/login`, `/trade/:symbol`, `/news-analyst`, `/dashboard`.
 | --- | --- |
 | Trade (main page) | A |
 | News & Analyst | C (a full-page `<iframe>` of C's page inside A's shell) |
-| Dashboard | C (system and AI observability from C's `/api/observability`; section 12.2) |
+| Dashboard | C (system and AI observability from C's `/api/observability`; section 12.2). Only an `ADMIN` sees the link; anyone else who opens `/dashboard` is sent to the trade page. The role travels in the access token and `/api/auth/me`. This decides what the page shows, not who can read the data: C's `/api/observability` and Grafana are still reachable without a login wherever their ports are published |
 
 Trade page regions:
 

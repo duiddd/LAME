@@ -10,10 +10,11 @@ async def insert_user(conn: AsyncConnection, username: str, password_hash: str, 
     return row.user_id if row else None
 
 
-async def insert_seeded_user(conn: AsyncConnection, user_id: int, username: str, password_hash: str, now: int) -> bool:
+async def insert_seeded_user(conn: AsyncConnection, user_id: int, username: str, password_hash: str, now: int,
+                             role: str = "USER") -> bool:
     row = (await conn.execute(text(
-        "INSERT INTO users (user_id, username, password_hash, created_at) VALUES (:i, :u, :p, :n) "
-        "ON CONFLICT DO NOTHING RETURNING user_id"), {"i": user_id, "u": username, "p": password_hash, "n": now})).first()
+        "INSERT INTO users (user_id, username, password_hash, created_at, role) VALUES (:i, :u, :p, :n, :r) "
+        "ON CONFLICT DO NOTHING RETURNING user_id"), {"i": user_id, "u": username, "p": password_hash, "n": now, "r": role})).first()
     return row is not None
 
 
@@ -22,11 +23,11 @@ async def user_exists(conn: AsyncConnection, user_id: int) -> bool:
 
 
 async def find_user(conn: AsyncConnection, username: str):
-    return (await conn.execute(text("SELECT user_id, username, password_hash FROM users WHERE username = :u"), {"u": username})).first()
+    return (await conn.execute(text("SELECT user_id, username, password_hash, role FROM users WHERE username = :u"), {"u": username})).first()
 
 
 async def get_user(conn: AsyncConnection, user_id: int):
-    return (await conn.execute(text("SELECT user_id, username FROM users WHERE user_id = :i"), {"i": user_id})).first()
+    return (await conn.execute(text("SELECT user_id, username, role FROM users WHERE user_id = :i"), {"i": user_id})).first()
 
 
 async def insert_refresh(conn: AsyncConnection, token_hash: str, family_id: str, user_id: int, expires_at: int) -> None:

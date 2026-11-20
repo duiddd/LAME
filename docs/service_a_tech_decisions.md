@@ -391,6 +391,13 @@
 - **备选:** 手写 TypeScript 类型;自写 mock server;Testcontainers;SQLite。
 - **后果:** fake D 依 `feature/risk_control` 的代码行为编写。11-17 已在本机让 A、D、B、C 与前端一起运行(`service_a/tools/run_local.ps1`),`service_a/tools/local_e2e.py` 对真实的 B 与 D 通过,包括 D 的改单。打包进根目录的 compose 尚未完成。系统负载测试与故障注入脚本按提案属于 B 与 D,A 不重复。
 
+### D30. 系统 dashboard 只给管理员看
+
+- **决策:** `users` 表加 `role`(`USER` 或 `ADMIN`),seed 一个 `admin` 账号(ID 1000,密码同 `SEED_PASSWORD`,无余额)。角色写入 access token 的 `role` claim 并由 `/api/auth/me` 返回;没有或不认识的 claim 一律视为 `USER`。前端只在 `ADMIN` 时显示导航栏第三个链接 Dashboard,其他人打开 `/dashboard` 会被导回交易页。注册不会给出 `ADMIN`,也没有授予角色的 API。
+- **理由:** 角色放在数据库里,名字被人抢先注册也不会变成管理员(若改用环境变量列出管理员名单就有这个风险)。放进 token 后,之后若要在后端检查也不必多查一次数据库。
+- **备选:** 环境变量列出管理员用户名;每次请求查数据库取角色;由 A 代理 C 的 `/api/observability` 并在 A 检查角色。
+- **后果:** 目前只控制页面显示,不保护数据:C 的 `/api/observability` 与 Grafana 在端口公开时无需登录即可读取。要真正保护,需由 A 代理该接口并检查角色,或由 C 验证 A 的 token,并且不公开 C 与 Grafana 的端口;这需要与 C 协调,未在此实现。
+
 ## 3. 待决事项(A 内部)
 
 1. **数值参数:** 限流速率、价格带宽(±10%)、保护价系数(5%)、超时、`RESEND_WINDOW`、对账查询间隔、削减阈值、单次充值上限,都是初始值,待 Week 6 基线测量后确定。
