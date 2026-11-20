@@ -60,7 +60,10 @@ def migrated_once(migrated):
 
 
 def make_settings(**overrides) -> Settings:
-    defaults = dict(database_url=URL, jwt_secret="test-secret-test-secret-test-secret-0", seed_balances=False, background_tasks=False, _env_file=None)
+    # A fixed grid of its own, so the tests' amounts do not change with the production units.
+    # 測試使用固定的單位設定,金額斷言不會隨正式設定的單位而變。
+    defaults = dict(database_url=URL, jwt_secret="test-secret-test-secret-test-secret-0", seed_balances=False, background_tasks=False,
+                    symbols_file=str(ROOT / "tests" / "symbols_test.json"), _env_file=None)
     return Settings(**{**defaults, **overrides})
 
 

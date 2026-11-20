@@ -8,6 +8,7 @@ import json
 import sys
 import time
 from datetime import datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -16,6 +17,11 @@ import websockets
 A = "http://127.0.0.1:8000"
 RUN = str(int(time.time()))[-6:]
 PASSED, FAILED = [], []
+
+
+def same(a, b) -> bool:
+    """Compares amounts as numbers, so the check holds whatever the configured decimals are."""
+    return Decimal(str(a)) == Decimal(str(b))
 
 
 def check(name, condition, detail=""):
@@ -81,6 +87,9 @@ async def main():
     await amy.sign_up()
     await bob.sign_up()
     usdt0 = float((await amy.bal("USDT"))["available"])
+    summary = (await amy.c.get("/api/market/summary")).json()
+    qd = next(s for s in summary["symbols"] if s["symbol"] == "BTC-USDT")["qty_decimals"]
+    units = lambda text: int(Decimal(text).scaleb(qd))          # B's integer units for a quantity
 
     # Prices near the last trade if the day already has one, so the +-10% band accepts them.
     ref = snap["last_price"] or (snap["bids"][0]["price"] if snap["bids"] else None) or (snap["asks"][0]["price"] if snap["asks"] else 5000000)
@@ -98,14 +107,14 @@ async def main():
 
     buy = await amy.place(price=px(0), qty="0.300")
     bid = buy.json()["order_id"]
-    o = await amy.wait(bid, lambda o: o["status"] == "FILLED" and o["settled_qty"] == "0.300")
+    o = await amy.wait(bid, lambda o: o["status"] == "FILLED" and same(o["settled_qty"], "0.3"))
     check("real match: taker FILLED and settled", o["status"] == "FILLED" and o["avg_fill_price"] == px(-10000), o)
     b = await amy.bal("USDT")
     cost = 0.3 * (ref - 10000) / 100
     check("buyer paid the maker's price, nothing left held", abs(usdt0 - float(b["available"]) - cost) < 1e-6 and float(b["held"]) == 0, b)
-    check("buyer received BTC", (await amy.bal("BTC"))["available"] == "10.300")
+    check("buyer received BTC", same((await amy.bal("BTC"))["available"], "10.3"))
     o = await bob.wait(sid, lambda o: o["status"] == "PARTIALLY_FILLED")
-    check("maker PARTIALLY_FILLED 0.300", o["filled_qty"] == "0.300", o)
+    check("maker PARTIALLY_FILLED 0.300", same(o["filled_qty"], "0.3"), o)
 
     self_buy = await bob.place(price=px(0), qty="0.100")
     check("self-trade order accepted for D's decision (202)", self_buy.status_code == 202, f"{self_buy.status_code} {self_buy.text}")
@@ -124,12 +133,12 @@ async def main():
         o = await bob.wait(sid, lambda o: o["status"] != "MODIFYING", 12)
         held = (await bob.bal("BTC"))["held"]
         check(f"modify applied: remaining {remaining}, same price, hold follows",
-              o["price"] == px(-10000) and o["status"] == "PARTIALLY_FILLED" and held == remaining, {"order": o, "held": held})
+              o["price"] == px(-10000) and o["status"] == "PARTIALLY_FILLED" and same(held, remaining), {"order": o, "held": held})
 
     c = await bob.c.delete(f"/api/orders/{sid}")
     check("cancel accepted", c.status_code == 202, c.text)
     o = await bob.wait(sid, lambda o: o["status"] == "CANCELLED" and not o["cancel_requested"])
-    check("cancel through real B releases the rest", o["status"] == "CANCELLED" and (await bob.bal("BTC"))["held"] == "0.000", o)
+    check("cancel through real B releases the rest", o["status"] == "CANCELLED" and same((await bob.bal("BTC"))["held"], 0), o)
 
     rest = await bob.place(side="SELL", price=px(0), qty="0.200")
     check("resting sell accepted (202)", rest.status_code == 202, f"{rest.status_code} {rest.text}")
@@ -138,14 +147,16 @@ async def main():
     # Other runs may have left orders on B's book, so the expected fill comes from the book itself.
     book = await md_snapshot()
     cap = book["asks"][0]["price"] * 105 // 100 if book["asks"] else 0
-    expected = min(500, sum(l["qty"] for l in book["asks"] if l["price"] <= cap))
+    half = units("0.5")
+    expected = min(half, sum(l["qty"] for l in book["asks"] if l["price"] <= cap))
     mk = await amy.place(type="MARKET", price=None, qty="0.500")
     check("market buy accepted", mk.status_code == 202, mk.text)
     if mk.status_code == 202:
         o = await amy.wait(mk.json()["order_id"], lambda o: o["status"] in ("CANCELLED", "FILLED", "REJECTED"), 12)
-        want = "FILLED" if expected == 500 else "CANCELLED"
-        check(f"market buy fills what the book offers ({expected / 1000:.3f}), remainder cancelled",
-              o["status"] == want and o["filled_qty"] == f"{expected / 1000:.3f}", o)
+        want = "FILLED" if expected == half else "CANCELLED"
+        filled = Decimal(expected).scaleb(-qd)
+        check(f"market buy fills what the book offers ({filled}), remainder cancelled",
+              o["status"] == want and same(o["filled_qty"], filled), o)
         check("market buy leaves nothing held", float((await amy.bal("USDT"))["held"]) == 0, await amy.bal("USDT"))
 
     candles = (await amy.c.get("/api/market/candles", params={"symbol": "BTC-USDT", "interval": "1m"})).json()

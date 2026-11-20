@@ -188,8 +188,6 @@ function Start-Containers($rebuildB) {
     $src = Join-Path $Workspace "main\match_engine"
     # B reads its pairs from config\pairs.json since 18 Nov; a container made before that lacks the mount.
     $pairs = Join-Path $src "config\pairs.json"
-    # A pairs.local.json in the workspace overrides B's file, while the team settles the lot sizes.
-    if (Test-Path (Join-Path $Workspace "pairs.local.json")) { $pairs = Join-Path $Workspace "pairs.local.json" }
     $exists = docker ps -a --filter "name=^lame-b$" --format "{{.Names}}"
     if ($exists -and (Test-Path $pairs) -and -not (docker inspect lame-b --format "{{range .Mounts}}{{.Destination}} {{end}}" | Select-String "/etc/lame/pairs.json")) {
         Warn "B now needs its pair file: recreating its container (data is kept)"

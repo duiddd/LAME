@@ -185,7 +185,9 @@ async def main():
     md = await serve_md()
     python = sys.executable
     data = tempfile.mkdtemp(prefix="lame-d-")
-    env_a = {"DATABASE_URL": DB, "D_URL": f"http://127.0.0.1:{D_PORT}", "B_MD_URL": f"ws://127.0.0.1:{MD_PORT}", "SEED_BALANCES": "false"}
+    # The tests' fixed grid (3 quantity decimals), which the amounts below are written in.
+    env_a = {"DATABASE_URL": DB, "D_URL": f"http://127.0.0.1:{D_PORT}", "B_MD_URL": f"ws://127.0.0.1:{MD_PORT}", "SEED_BALANCES": "false",
+             "SYMBOLS_FILE": str(ROOT / "tests" / "symbols_test.json")}
     subprocess.run([python, "-m", "alembic", "upgrade", "head"], cwd=ROOT, env={**os.environ, **env_a}, check=True, capture_output=True)
     a = start([python, "-m", "uvicorn", "app.main:app", "--port", str(A_PORT), "--workers", "1"], ROOT, env_a)
     runner = "import uvicorn; from d.config import Settings, load_static; from d.engine import Engine; from d.api import create_app; s = Settings(); uvicorn.run(create_app(Engine(s, load_static(s))), port=%d)" % D_PORT

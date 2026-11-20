@@ -127,4 +127,6 @@ The results of the 18 Nov run are in `docs/submission/fault_injection.md`.
   notification stopped the line. Settlement waits until it is fixed. A never skips one.
 - Seeded users are `user<ID>`, with the password in `SEED_PASSWORD`. Set `SEED_BALANCES=false` to
   seed them without funds.
-- Price and quantity decimals in `config/symbols.json` are provisional until the team defines them.
+- `config/symbols.json` follows B's `match_engine/config/pairs.json`: 6 quantity decimals, BTC lot
+  0.0001, ETH lot 0.001, USDT 8 decimals. `tests/test_pairs.py` checks the three files agree. A
+  change of units needs A's, B's and D's data reset together (`run_local.ps1 -Reset`).
