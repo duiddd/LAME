@@ -1,10 +1,10 @@
 """Shows A's consistency mechanisms working against the real D and B, then checks the books.
 
-  python service_a/tools/consistency_demo.py [--workspace PATH]
+  python service_a/tools/consistency_demo.py [--compose] [--workspace PATH]
 
-Needs the services from run_local.ps1, with D started with FAULTS_ENABLED=true (fault_demo.py
-restarts D that way). Windows only: D is frozen
-with NtSuspendProcess and A is killed with taskkill. Run inside B's session (00:00-23:00 Dublin).
+Needs the services from run_local.ps1 with D started with FAULTS_ENABLED=true (fault_demo.py
+restarts D that way), or with --compose the root compose system started with FAULTS_ENABLED=true.
+stack.py says how D is frozen and A killed in each. Run inside B's session (00:00-23:00 Dublin).
 
 | Scenario | Mechanism shown | Injected | Passes when |
 | --- | --- | --- | --- |
@@ -19,19 +19,17 @@ Writes <workspace>/logs/consistency-<time>.json.
 """
 import argparse
 import asyncio
-import ctypes
 import json
-import os
-import sqlite3
-import subprocess
 import time
 from pathlib import Path
 
 import httpx
 
+import stack
+
 A, D = "http://127.0.0.1:8000", "http://127.0.0.1:8400"
 RUN = str(int(time.time()))[-6:]
-WS: Path
+TARGET: stack.ComposeStack
 
 
 # ------------------------------------------------------------------ helpers
@@ -47,14 +45,11 @@ async def metric(url, name, labels=""):
 
 
 def sql(query):
-    out = subprocess.run(["docker", "exec", "lame-pg", "psql", "-U", "lame", "-d", "lame", "-At", "-F", "|", "-c", query],
-                         capture_output=True, text=True, check=True).stdout.strip()
-    return [row.split("|") for row in out.splitlines()] if out else []
+    return TARGET.a_sql(query)
 
 
 def d_sql(query, *args):
-    with sqlite3.connect(f"file:{WS / 'd-data' / 'd.db'}?mode=ro", uri=True) as c:
-        return c.execute(query, args).fetchall()
+    return TARGET.d_sql(query, *args)
 
 
 def d_delivered_and_max():
@@ -64,49 +59,6 @@ def d_delivered_and_max():
 
 def a_cursor():
     return int(sql("SELECT last_notify_seq FROM notify_cursor")[0][0])
-
-
-def pids():
-    return json.loads((WS / "pids.json").read_text(encoding="utf-8-sig"))
-
-
-def suspend(pid, on):
-    # Freezes or thaws D's process: its socket still accepts, but nothing answers.
-    # 凍結或恢復 D 的行程:socket 仍會接受連線,但不會有回應。
-    ntdll, kernel = ctypes.WinDLL("ntdll"), ctypes.WinDLL("kernel32")
-    handle = kernel.OpenProcess(0x0800, False, pid)          # PROCESS_SUSPEND_RESUME
-    if not handle:
-        raise OSError(f"cannot open D's process {pid}")
-    try:
-        status = (ntdll.NtSuspendProcess if on else ntdll.NtResumeProcess)(handle)
-        if status != 0:
-            raise OSError(f"NtSuspend/ResumeProcess({pid}) returned {status:#x}")
-    finally:
-        kernel.CloseHandle(handle)
-
-
-def d_process_pid():
-    # pids.json may hold a launcher; the python child is the one listening on 8400.
-    # pids.json 可能記的是啟動器;真正監聽 8400 的是 python 子行程。
-    out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True).stdout
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) >= 5 and parts[1].endswith(":8400") and parts[3] == "LISTENING":
-            return int(parts[4])
-    raise RuntimeError("nothing listens on 8400")
-
-
-def start_a():
-    env = dict(os.environ, DATABASE_URL="postgresql+asyncpg://lame:lame@127.0.0.1:5432/lame", D_URL=D,
-               B_MD_URL="ws://127.0.0.1:9999", JWT_SECRET=(WS / "jwt_secret.txt").read_text(encoding="utf-8-sig").strip(),
-               PYTHONUTF8="1")
-    log = open(WS / "logs" / "a.log", "ab")
-    proc = subprocess.Popen([str(WS / "venv-ad" / "Scripts" / "python.exe"), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",
-                             "--port", "8000", "--workers", "1"], cwd=WS / "a" / "service_a", env=env, stdout=log,
-                            stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
-    p = pids()
-    p["A"] = proc.pid
-    (WS / "pids.json").write_text(json.dumps(p, indent=4), encoding="utf-8")
 
 
 async def wait_for(check, timeout, step=0.2):
@@ -208,8 +160,7 @@ async def lost_notification(u: User):
     await asyncio.sleep(1)
     delivered, newest = d_delivered_and_max()
     cursor = a_cursor()
-    log = (WS / "logs" / "d.log").read_text(encoding="utf-8", errors="replace").splitlines()
-    d_lines = [l for l in log[-400:] if "skipping notify_seq" in l or "A expects notify_seq" in l][-2:]
+    d_lines = [l for l in TARGET.d_log() if "skipping notify_seq" in l or "A expects notify_seq" in l][-2:]
     await u.cancel_all([o1, o2])
     result = {"o1_status_while_skipped": stuck, "both_processing": settled, "a_gaps_answered_409": gaps_after - gaps_before,
               "d_log": d_lines, "a_cursor": cursor, "d_delivered_seq": delivered, "d_newest_seq": newest}
@@ -225,14 +176,14 @@ async def outbox_across_a_crash(u: User):
         assert r.status_code == 202, r.text
         ids.append(r.json()["order_id"])
     statuses_before = [(await u.order(i))["status"] for i in ids]
-    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pids()["A"])], capture_output=True)
+    TARGET.kill_a()
     killed = time.time()
     await asyncio.sleep(6)                                # D decides while A is gone
     await d_faults(decision_delay_ms=0)
     delivered, newest = d_delivered_and_max()
     backlog_while_down = await metric(D, "lame_d_outbox_backlog")
     pending = d_sql("SELECT notify_seq, type, order_id FROM outbox WHERE notify_seq > ? ORDER BY notify_seq", delivered)
-    start_a()
+    TARGET.start_a()
     up = await wait_for(lambda: _a_ready(), 60, 0.5)
     a_up_after = round(time.time() - killed, 1)
     drained = await wait_for(lambda: _d_backlog_zero(), 60, 0.5)
@@ -265,8 +216,7 @@ async def _d_backlog_zero():
 
 
 async def no_reply(u: User, frozen_s: float):
-    pid = d_process_pid()
-    suspend(pid, True)
+    TARGET.freeze_d(True)
     try:
         start = time.perf_counter()
         r = await u.place()
@@ -276,7 +226,7 @@ async def no_reply(u: User, frozen_s: float):
         held_while_frozen = await u.held()
         await asyncio.sleep(max(0, frozen_s - (time.perf_counter() - start)))
     finally:
-        suspend(pid, False)
+        TARGET.freeze_d(False)
     thawed = time.perf_counter()
     final = None
     if oid:
@@ -339,10 +289,13 @@ def books():
 
 
 async def main():
-    global WS
+    global TARGET
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", default=str(Path(__file__).resolve().parents[3]))
-    WS = Path(parser.parse_args().workspace)
+    parser.add_argument("--compose", action="store_true", help="the root compose system instead of run_local.ps1's processes")
+    args = parser.parse_args()
+    WS = Path(args.workspace)
+    TARGET = stack.make(args.compose, WS)
     u = User("consistency")
     await u.sign_up()
     results = {}

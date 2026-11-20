@@ -1,9 +1,11 @@
 """Fault-injection run for the dashboard: steady traffic, three injected failures, one log.
 
-  python service_a/tools/fault_demo.py [--workspace PATH] [--phase SECONDS] [--grafana URL]
+  python service_a/tools/fault_demo.py [--compose] [--workspace PATH] [--phase SECONDS] [--grafana URL]
                                       [--shot-url URL [--shot-dir DIR]]
 
-Needs the services started by run_local.ps1. Run inside B's session (00:00-23:00 Dublin time).
+Needs the services started by run_local.ps1, or with --compose the root compose system started with
+FAULTS_ENABLED=true (stack.py lists what each fault does in either). Run inside B's session
+(00:00-23:00 Dublin time).
 
 Timeline, with P = --phase seconds (default 45):
   0     baseline traffic
@@ -27,7 +29,6 @@ Writes <workspace>/logs/fault-demo-<time>.json (timeline and per-phase summary) 
 import argparse
 import asyncio
 import json
-import os
 import statistics
 import subprocess
 import time
@@ -36,6 +37,7 @@ from pathlib import Path
 
 import httpx
 
+import stack
 from screenshot import capture
 
 A, C, D = "http://127.0.0.1:8000", "http://127.0.0.1:8081", "http://127.0.0.1:8400"
@@ -152,18 +154,6 @@ async def analyst(run: Run):
             await asyncio.sleep(5)
 
 
-def start_d(workspace: Path) -> int:
-    # Starts D the way run_local.ps1 does, with the fault switches on.
-    # 以 run_local.ps1 相同方式啟動 D，並開啟故障開關。
-    env = dict(os.environ, B_CTRL_URL="ws://127.0.0.1:11659/d", A_NOTIFY_URL=f"{A}/internal/order-events",
-               DATA_DIR=str(workspace / "d-data"), PYTHONUTF8="1", FAULTS_ENABLED="true")
-    log = open(workspace / "logs" / "d.log", "ab")
-    proc = subprocess.Popen([str(workspace / "venv-ad" / "Scripts" / "python.exe"), "-m", "d.main"],
-                            cwd=workspace / "d" / "service_d", env=env, stdout=log, stderr=subprocess.STDOUT,
-                            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
-    return proc.pid
-
-
 async def d_faults(**faults):
     async with httpx.AsyncClient(timeout=5) as c:
         r = await c.post(f"{D}/admin/faults", json=faults)
@@ -204,26 +194,25 @@ async def main():
     parser.add_argument("--grafana", default="http://127.0.0.1:3001")
     parser.add_argument("--shot-url", default="", help="a live dashboard page to capture in the middle of each phase")
     parser.add_argument("--shot-dir", default="")
+    parser.add_argument("--compose", action="store_true", help="the root compose system instead of run_local.ps1's processes")
     args = parser.parse_args()
     workspace, P = Path(args.workspace), args.phase
     shot_dir = Path(args.shot_dir or workspace / "logs" / f"fault-demo-shots-{time.strftime('%Y%m%d-%H%M%S')}")
     shot_dir.mkdir(parents=True, exist_ok=True)
     run = Run(workspace, args.grafana, args.shot_url, shot_dir, P)
+    target = stack.make(args.compose, workspace)
     price = await sign_up(run)
     tasks = [asyncio.create_task(f(run, price) if f is trader else f(run)) for f in (trader, reader, analyst)]
-    pids_file = workspace / "pids.json"
 
     async def at(seconds):
         await asyncio.sleep(max(0, run.started + seconds - time.time()))
 
     await run.mark("baseline", "Baseline traffic")
     await at(1 * P)
-    pids = json.loads(pids_file.read_text(encoding="utf-8-sig"))
-    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pids["D"])], capture_output=True)
+    target.kill_d()
     await run.mark("d_down", "FAULT: D's process killed")
     await at(2 * P)
-    pids["D"] = start_d(workspace)
-    pids_file.write_text(json.dumps(pids, indent=4), encoding="utf-8")
+    target.start_d()
     ready = await wait_d_ready()
     await run.mark("d_recovering", f"RECOVER: D restarted (ready={ready})")
     await at(3 * P)
@@ -233,10 +222,10 @@ async def main():
     await d_faults(decision_delay_ms=0)
     await run.mark("d_slow_recovering", "RECOVER: D's delay removed")
     await at(5.33 * P)
-    subprocess.run(["docker", "stop", "lame-b"], capture_output=True)
+    target.stop_b()
     await run.mark("b_down", "FAULT: B (matching engine) stopped")
     await at(6 * P)
-    subprocess.run(["docker", "start", "lame-b"], capture_output=True)
+    target.start_b()
     await run.mark("b_recovering", "RECOVER: B started")
     await at(7 * P)
     await run.mark("end", "End of run")
@@ -246,7 +235,7 @@ async def main():
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out = workspace / "logs" / f"fault-demo-{stamp}"
     out.with_suffix(".jsonl").write_text("\n".join(json.dumps(a) for a in run.attempts) + "\n", encoding="utf-8")
-    result = {"phase_seconds": P, "order_price": price, "timeline": run.timeline, "by_phase": summarise(run.attempts)}
+    result = {"stack": target.name, "phase_seconds": P, "order_price": price, "timeline": run.timeline, "by_phase": summarise(run.attempts)}
     out.with_suffix(".json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result["by_phase"], indent=1))
     print("written", out.with_suffix(".json"))
