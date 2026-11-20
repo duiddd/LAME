@@ -18,7 +18,7 @@ function seedMarket(start: number): FakeMarket {
   let price = start;
   for (let t = now - 3 * 3600 * 1000; t < now; t += 2500) {
     price = Math.max(100, price + Math.round((Math.random() - 0.495) * start * 0.0009));
-    const qty = 1 + Math.floor(Math.random() * 40);
+    const qty = (1 + Math.floor(Math.random() * 40)) * 1000; // 0.001-0.040 at 6 decimals
     market.trades.push({ t, price, qty, seq: ++seq });
     market.volume += qty;
   }
@@ -45,7 +45,7 @@ export function day(): string {
 export function marketFor(symbol: string): MarketData {
   const m = markets[symbol];
   const step = Math.max(1, Math.round(m.last * 0.0002));
-  const depth = () => 5 + Math.floor(Math.random() * 400);
+  const depth = () => (5 + Math.floor(Math.random() * 400)) * 1000; // 6 quantity decimals
   return {
     bids: [1, 2, 3].map((i) => ({ price: m.last - i * step, qty: depth() })),
     asks: [1, 2, 3].map((i) => ({ price: m.last + i * step, qty: depth() })),
@@ -58,7 +58,7 @@ export function marketFor(symbol: string): MarketData {
 export function onTrade(symbol: string): void {
   const m = markets[symbol];
   const price = Math.max(100, m.last + Math.round((Math.random() - 0.5) * m.last * 0.0009));
-  const qty = 1 + Math.floor(Math.random() * 40);
+  const qty = (1 + Math.floor(Math.random() * 40)) * 1000; // 0.001-0.040 at 6 decimals
   m.trades.push({ t: Date.now(), price, qty, seq: ++seq });
   m.last = price;
   m.volume += qty;
