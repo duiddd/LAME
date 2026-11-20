@@ -28,7 +28,7 @@ Start the container stack from the repository root:
 docker compose up --build
 ```
 
-> **Note on Service A (`feature/trading`):** If `service_a/` is on Pin-Yun's `feature/trading` branch rather than your checked-out branch, either merge `feature/trading` and uncomment `- service_a/docker-compose.yml` in `docker-compose.yml`, or run Pin-Yun's combined Windows harness (`service_a/tools/run_local.ps1`). For purely local UI inspection without `service-a`, the frontend container (`:3000`) starts gracefully and supports mock trading telemetry alongside live Service C data.
+> **Service A** is included by the root `docker-compose.yml` (`service_a/docker-compose.yml`, with its own PostgreSQL). Without Docker, `service_a/tools/run_local.ps1` runs all services as local processes on Windows. The seeded operator account `admin` (password `SEED_PASSWORD`, default `lame-demo-password`) is the only one that sees the Dashboard page.
 
 Pull the local LLM weights once if running full live Ollama inference (otherwise Service C serves deterministic grounded fallback cleanly):
 

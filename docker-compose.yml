@@ -1,8 +1,9 @@
 # Root Docker Compose orchestration for LAME (COMP41720 Group Project)
 #
-# Service B (matching engine) and Frontend (React + Nginx) are defined in their directories.
-# Once feature/trading merges Service A into main, also include service_a/docker-compose.yml.
+# Service A (trading and accounts, with its PostgreSQL), Service B (matching engine) and the
+# frontend (React + nginx) are defined in their own directories and included here.
 include:
+  - service_a/docker-compose.yml
   - match_engine/compose.yaml
   - frontend/docker-compose.yml
 
