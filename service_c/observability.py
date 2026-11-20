@@ -210,21 +210,29 @@ class ObservabilityAggregator:
             if val == val and labels.get("result", "") != "accepted"
         )
         has_http_status = any("status" in labels for labels, _ in http_samples)
+        http_4xx = 0.0
         if has_http_status:
-            http_errs = sum(
+            # 5xx are server-side errors; 4xx are client-side errors (surfaced separately).
+            http_5xx = sum(
                 val
                 for labels, val in http_samples
-                if val == val and labels.get("status", "").isdigit() and int(labels["status"]) >= 400
+                if val == val and labels.get("status", "").isdigit() and int(labels["status"]) >= 500
             )
-            errs = int(http_errs + p.sum_metric("lame_a_md_bad_messages_total"))
+            http_4xx = sum(
+                val
+                for labels, val in http_samples
+                if val == val
+                and labels.get("status", "").isdigit()
+                and 400 <= int(labels["status"]) < 500
+            )
+            errs = int(http_5xx + p.sum_metric("lame_a_md_bad_messages_total"))
         else:
-            other_errs = (
-                p.sum_metric("lame_a_auth_failures_total")
+            server_order_errs = p.sum_metric("lame_a_orders_total", {"result": "SYSTEM_BUSY"})
+            errs = int(
+                server_order_errs
                 + p.sum_metric("lame_a_notify_failures_total")
                 + p.sum_metric("lame_a_md_bad_messages_total")
-                + p.sum_metric("lame_a_notification_gaps_total")
             )
-            errs = int(order_refused + other_errs)
         lat = p.histogram_quantiles_ms("lame_a_http_request_duration_seconds")
         order_lat = p.histogram_quantiles_ms("lame_a_order_completion_seconds")
         circuit_val = int(p.gauge_value("lame_a_circuit_state"))
@@ -248,6 +256,7 @@ class ObservabilityAggregator:
             "key_gauges": {
                 "circuit_breaker": circuit_label,
                 "shedding_active": bool(p.gauge_value("lame_a_shedding_active") > 0),
+                "client_4xx": int(http_4xx),
                 "orders_refused": int(order_refused),
                 "orders_unsettled": int(p.gauge_value("lame_a_orders_unsettled")),
                 "notify_cursor_age_s": round(p.gauge_value("lame_a_notify_cursor_age_seconds"), 2),
@@ -396,6 +405,7 @@ class ObservabilityAggregator:
             },
             "key_gauges": {
                 "index_version": c_summary["index_version"],
+                "client_4xx": c_summary["http_4xx_total"],
                 "dlq_messages": c_summary["dlq_messages_count"],
                 "refusal_rate_pct": round(c_summary["refusal_rate"] * 100.0, 1),
                 "stripped_citations": c_summary["hallucinated_citations_stripped_total"],

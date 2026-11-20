@@ -366,8 +366,10 @@ async def run_checks() -> None:
                 "service-a": (
                     'lame_a_http_request_duration_seconds_count{endpoint="/api/orders",method="POST",status="201"} 4\n'
                     'lame_a_http_request_duration_seconds_count{endpoint="/api/orders",method="POST",status="400"} 1\n'
+                    'lame_a_http_request_duration_seconds_count{endpoint="/api/orders",method="POST",status="503"} 2\n'
                     'lame_a_orders_total{result="accepted"} 4\n'
                     'lame_a_orders_total{result="INSUFFICIENT_BALANCE"} 1\n'
+                    'lame_a_orders_total{result="SYSTEM_BUSY"} 2\n'
                 ),
                 "service-b": (
                     'lame_b_commands_total{symbol="BTC-USDT"} 6\n'
@@ -384,10 +386,11 @@ async def run_checks() -> None:
         )
         by_svc = {s["id"]: s for s in agg_check["services"]}
         check(
-            "ObservabilityAggregator parses D REJECTED, A 4xx/5xx/order refusals, and B OrderEvent only",
+            "ObservabilityAggregator counts 5xx server errors (excluding 4xx), D REJECTED, and B OrderEvent only",
             by_svc["service-d"]["errors_total"] == 3
             and by_svc["service-d"]["key_gauges"]["rejected_decisions"] == 2
-            and by_svc["service-a"]["errors_total"] == 1
+            and by_svc["service-a"]["errors_total"] == 2
+            and by_svc["service-a"]["key_gauges"]["client_4xx"] == 1
             and by_svc["service-b"]["errors_total"] == 1
             and by_svc["service-b"]["key_gauges"]["order_events"] == 5,
             by_svc,

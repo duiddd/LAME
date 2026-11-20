@@ -293,7 +293,8 @@ lame_d_outbox_backlog 0
     assert snap["services_up"] == 4
     by_id = {s["id"]: s for s in snap["services"]}
     assert by_id["service-a"]["requests_total"] == 10
-    assert by_id["service-a"]["errors_total"] == 3
+    assert by_id["service-a"]["errors_total"] == 2
+    assert by_id["service-a"]["key_gauges"]["client_4xx"] == 1
     assert by_id["service-a"]["key_gauges"]["orders_refused"] == 3
     assert by_id["service-b"]["requests_total"] == 15
     assert by_id["service-b"]["errors_total"] == 1
@@ -305,3 +306,17 @@ lame_d_outbox_backlog 0
     assert by_id["service-d"]["latency_ms"]["p95"] > 0.0
     assert "estimated_equivalent_cost_usd" in snap["ai"]
     assert "direct_api_spend_usd" in snap["ai"]
+
+
+def test_http_4xx_excluded_from_server_error_rate(isolated_env):
+    """HTTP 4xx client errors do not count toward server error_rate_pct (5xx only)."""
+    from service_c.metrics import metrics
+
+    with TestClient(app) as client:
+        before_4xx = metrics.summary_dict()["http_4xx_total"]
+        before_5xx = metrics.summary_dict()["http_errors_total"]
+        bad = client.get("/nonexistent-client-route")
+        assert bad.status_code == 404
+        after = metrics.summary_dict()
+        assert after["http_4xx_total"] == before_4xx + 1
+        assert after["http_errors_total"] == before_5xx

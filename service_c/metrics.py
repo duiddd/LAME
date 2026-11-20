@@ -141,7 +141,8 @@ class MetricsRegistry:
         total_reqs = sum(self.http_requests_total.values())
         total_4xx = sum(cnt for (_, _, st), cnt in self.http_requests_total.items() if 400 <= st < 500)
         total_5xx = sum(cnt for (_, _, st), cnt in self.http_requests_total.items() if st >= 500)
-        total_errors = total_4xx + total_5xx
+        # Count server-side 5xx responses as server errors (4xx are client-side errors).
+        total_errors = total_5xx
         uptime = max(1.0, now - self._start_mono)
         window_span = min(self.RATE_WINDOW_SECONDS, uptime)
         rps = len(self._request_events) / max(1.0, window_span)
