@@ -1,38 +1,38 @@
 {
   "idempotent_request": {
-    "at": "2026-11-20T00:53:14",
+    "at": "2026-11-20T02:23:05",
     "responses": [
       [
         202,
-        "01M7V72Y8W8QK8ATF0B93562DQ"
+        "01M7VC7FQNRA8JDJJ08GBF0C6W"
       ],
       [
         202,
-        "01M7V72Y8W8QK8ATF0B93562DQ"
+        "01M7VC7FQNRA8JDJJ08GBF0C6W"
       ]
     ],
     "order_rows": 1,
     "hold_ledger_entries": 1,
-    "usdt_held": "47.50000000",
-    "held_after_cancel": "0.00000000",
+    "usdt_held": "47.500000",
+    "held_after_cancel": "0.000000",
     "pass": true
   },
   "lost_notification": {
-    "at": "2026-11-20T00:53:16",
+    "at": "2026-11-20T02:23:07",
     "o1_status_while_skipped": "SENT",
     "both_processing": true,
     "a_gaps_answered_409": 1.0,
     "d_log": [
-      "2026-11-20 00:53:17,236 WARNING d.notifier fault: skipping notify_seq 689",
-      "2026-11-20 00:53:18,832 WARNING d.notifier A expects notify_seq 689 (sent 690), resending from there"
+      "2026-11-20 02:23:09,280 WARNING d.notifier fault: skipping notify_seq 716",
+      "2026-11-20 02:23:10,866 WARNING d.notifier A expects notify_seq 716 (sent 717), resending from there"
     ],
-    "a_cursor": 690,
-    "d_delivered_seq": 690,
-    "d_newest_seq": 690,
+    "a_cursor": 717,
+    "d_delivered_seq": 717,
+    "d_newest_seq": 717,
     "pass": true
   },
   "outbox_across_a_crash": {
-    "at": "2026-11-20T00:53:48",
+    "at": "2026-11-20T02:23:41",
     "statuses_before_kill": [
       "SENT",
       "SENT",
@@ -41,23 +41,23 @@
     "d_backlog_while_a_down": 3.0,
     "d_pending_notifications": [
       [
-        695,
+        722,
         "RISK_REJECTED",
-        "01M7V740YZXGQ1P7MEKZB7QHCT"
+        "01M7VC8KCQ0DYGTSSBN5NRR8D5"
       ],
       [
-        696,
+        723,
         "RISK_REJECTED",
-        "01M7V741326GZBAXHNTT3CJJR2"
+        "01M7VC8KEX0H8DZV0N56GDGPEH"
       ],
       [
-        697,
+        724,
         "RISK_REJECTED",
-        "01M7V7415BAMQEB3K3Y29762ZV"
+        "01M7VC8KHATK98RQXZ2G4EH3YS"
       ]
     ],
-    "a_ready_s_after_kill": 20.9,
-    "d_backlog_zero_s_after_kill": 21.5,
+    "a_ready_s_after_kill": 16.2,
+    "d_backlog_zero_s_after_kill": 20.1,
     "d_decisions": [
       [
         "REJECTED",
@@ -83,19 +83,19 @@
       0
     ],
     "a_duplicates_ignored_after_restart": 0.0,
-    "a_cursor": 697,
-    "d_delivered_seq": 697,
-    "d_newest_seq": 697,
+    "a_cursor": 724,
+    "d_delivered_seq": 724,
+    "d_newest_seq": 724,
     "pass": true
   },
   "no_reply_resent": {
-    "at": "2026-11-20T00:54:18",
+    "at": "2026-11-20T02:24:08",
     "frozen_s": 3,
     "place_answer": {
       "status": 202,
       "body": {
-        "order_id": "01M7V74X2ZWRHN0WS8TG7E4ZQD",
-        "client_order_id": "c135991-8",
+        "order_id": "01M7VC9CYB91VEF2FC4BKHPW1A",
+        "client_order_id": "c141383-8",
         "symbol": "BTC-USDT",
         "side": "BUY",
         "type": "LIMIT",
@@ -107,19 +107,19 @@
         "status": "UNKNOWN",
         "reason": null,
         "cancel_requested": false,
-        "created_at": 1795136058463,
-        "updated_at": 1795136060493
+        "created_at": 1795141448651,
+        "updated_at": 1795141450697
       },
-      "ms": 2076
+      "ms": 2112
     },
     "status_while_frozen": "UNKNOWN",
-    "usdt_held_while_frozen": "47.50000000",
+    "usdt_held_while_frozen": "47.500000",
     "final_status": "PROCESSING",
-    "settled_s_after_thaw": 1.7,
+    "settled_s_after_thaw": 1.3,
     "a_row_attempts_status_held_closed": [
       "1",
       "PROCESSING",
-      "4750000000",
+      "47500000",
       "f"
     ],
     "d_order_rows": 1,
@@ -127,13 +127,13 @@
     "pass": true
   },
   "no_reply_cancelled": {
-    "at": "2026-11-20T00:54:52",
+    "at": "2026-11-20T02:24:42",
     "frozen_s": 8,
     "place_answer": {
       "status": 202,
       "body": {
-        "order_id": "01M7V75YYH4ADE70FCV9VJCF0G",
-        "client_order_id": "c135991-9",
+        "order_id": "01M7VCAEM19DM20W59CSDYQNR5",
+        "client_order_id": "c141383-9",
         "symbol": "BTC-USDT",
         "side": "BUY",
         "type": "LIMIT",
@@ -145,15 +145,15 @@
         "status": "UNKNOWN",
         "reason": null,
         "cancel_requested": false,
-        "created_at": 1795136093137,
-        "updated_at": 1795136095163
+        "created_at": 1795141483137,
+        "updated_at": 1795141485164
       },
-      "ms": 2075
+      "ms": 2063
     },
     "status_while_frozen": "UNKNOWN",
-    "usdt_held_while_frozen": "47.50000000",
+    "usdt_held_while_frozen": "47.500000",
     "final_status": "CANCELLED",
-    "settled_s_after_thaw": 1.3,
+    "settled_s_after_thaw": 1.2,
     "a_row_attempts_status_held_closed": [
       "3",
       "CANCELLED",
@@ -165,18 +165,18 @@
     "pass": true
   },
   "books": {
-    "at": "2026-11-20T00:55:05",
+    "at": "2026-11-20T02:24:55",
     "accounts_not_explained_by_ledger": 0,
     "held_not_matching_open_orders": 0,
     "closed_orders_still_holding": 0,
     "orders_in_doubt": 0,
     "assets_not_conserved": 0,
     "open_orders_by_status": {},
-    "orders_total": 243,
+    "orders_total": 253,
     "trades_total": 2,
-    "a_cursor": 703,
-    "d_delivered_seq": 703,
-    "d_newest_seq": 703,
+    "a_cursor": 730,
+    "d_delivered_seq": 730,
+    "d_newest_seq": 730,
     "pass": true
   }
 }

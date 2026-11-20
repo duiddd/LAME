@@ -4,8 +4,8 @@
   "order_price": "47500.00",
   "timeline": [
     {
-      "t_s": 1.5,
-      "at": "2026-11-20T00:43:26",
+      "t_s": 1.0,
+      "at": "2026-11-20T02:17:41",
       "phase": "baseline",
       "event": "Baseline traffic",
       "a_health": {
@@ -19,27 +19,27 @@
       }
     },
     {
-      "t_s": 58.1,
-      "at": "2026-11-20T00:44:23",
+      "t_s": 46.2,
+      "at": "2026-11-20T02:18:26",
       "phase": "d_down",
       "event": "FAULT: D's process killed",
       "a_health": {
         "ready": true,
         "circuit": 0,
-        "shedding": true
+        "shedding": false
       },
       "d_health": {
         "error": "ConnectTimeout"
       }
     },
     {
-      "t_s": 100.2,
-      "at": "2026-11-20T00:45:05",
+      "t_s": 95.0,
+      "at": "2026-11-20T02:19:15",
       "phase": "d_recovering",
       "event": "RECOVER: D restarted (ready=True)",
       "a_health": {
         "ready": true,
-        "circuit": 2,
+        "circuit": 0,
         "shedding": false
       },
       "d_health": {
@@ -48,8 +48,8 @@
       }
     },
     {
-      "t_s": 136.5,
-      "at": "2026-11-20T00:45:41",
+      "t_s": 135.5,
+      "at": "2026-11-20T02:19:55",
       "phase": "d_slow",
       "event": "FAULT: D slowed to 2 s per risk decision",
       "a_health": {
@@ -63,8 +63,8 @@
       }
     },
     {
-      "t_s": 195.6,
-      "at": "2026-11-20T00:46:40",
+      "t_s": 195.4,
+      "at": "2026-11-20T02:20:55",
       "phase": "d_slow_recovering",
       "event": "RECOVER: D's delay removed",
       "a_health": {
@@ -79,13 +79,13 @@
     },
     {
       "t_s": 240.5,
-      "at": "2026-11-20T00:47:25",
+      "at": "2026-11-20T02:21:40",
       "phase": "b_down",
       "event": "FAULT: B (matching engine) stopped",
       "a_health": {
         "ready": true,
         "circuit": 0,
-        "shedding": false
+        "shedding": true
       },
       "d_health": {
         "ready": false,
@@ -93,8 +93,8 @@
       }
     },
     {
-      "t_s": 274.3,
-      "at": "2026-11-20T00:47:59",
+      "t_s": 273.2,
+      "at": "2026-11-20T02:22:13",
       "phase": "b_recovering",
       "event": "RECOVER: B started",
       "a_health": {
@@ -109,13 +109,13 @@
     },
     {
       "t_s": 315.0,
-      "at": "2026-11-20T00:48:40",
+      "at": "2026-11-20T02:22:55",
       "phase": "end",
       "event": "End of run",
       "a_health": {
         "ready": true,
         "circuit": 0,
-        "shedding": true
+        "shedding": false
       },
       "d_health": {
         "ready": true,
@@ -125,74 +125,74 @@
   ],
   "by_phase": {
     "baseline": {
-      "orders": 50,
+      "orders": 59,
       "outcomes": {
-        "accepted": 50
+        "accepted": 59
       },
-      "post_ms_p50": 90.2,
-      "post_ms_max": 4762.2
+      "post_ms_p50": 74.8,
+      "post_ms_max": 6210.0
     },
     "d_down": {
-      "orders": 60,
+      "orders": 80,
       "outcomes": {
-        "503 SYSTEM_BUSY": 60
+        "503 SYSTEM_BUSY": 79,
+        "accepted": 1
       },
-      "post_ms_p50": 28.8,
-      "post_ms_max": 638.9
+      "post_ms_p50": 25.2,
+      "post_ms_max": 676.0
     },
     "d_recovering": {
-      "orders": 54,
+      "orders": 64,
       "outcomes": {
-        "503 SYSTEM_BUSY": 3,
-        "accepted": 51
+        "accepted": 64
       },
-      "post_ms_p50": 84.0,
-      "post_ms_max": 1679.6
+      "post_ms_p50": 77.2,
+      "post_ms_max": 592.0
     },
     "d_slow": {
-      "orders": 104,
+      "orders": 107,
       "outcomes": {
         "accepted": 13,
-        "503 SYSTEM_BUSY": 91
+        "503 SYSTEM_BUSY": 94
       },
-      "post_ms_p50": 23.9,
-      "post_ms_max": 730.8
+      "post_ms_p50": 20.4,
+      "post_ms_max": 1247.8
     },
     "d_slow_recovering": {
-      "orders": 74,
+      "orders": 71,
       "outcomes": {
-        "503 SYSTEM_BUSY": 21,
-        "accepted": 53
+        "503 SYSTEM_BUSY": 36,
+        "accepted": 35
       },
-      "post_ms_p50": 61.8,
-      "post_ms_max": 963.6
+      "post_ms_p50": 51.8,
+      "post_ms_max": 3324.6
     },
     "b_down": {
-      "orders": 52,
+      "orders": 53,
       "outcomes": {
-        "503 SYSTEM_BUSY": 1,
+        "503 SYSTEM_BUSY": 2,
         "400 NO_FRESH_PRICE": 51
       },
-      "post_ms_p50": 26.0,
-      "post_ms_max": 862.3
+      "post_ms_p50": 23.1,
+      "post_ms_max": 728.8
     },
     "b_recovering": {
-      "orders": 62,
+      "orders": 67,
       "outcomes": {
-        "400 NO_FRESH_PRICE": 7,
-        "accepted": 51,
-        "503 SYSTEM_BUSY": 4
+        "400 NO_FRESH_PRICE": 5,
+        "503 SYSTEM_BUSY": 2,
+        "accepted": 60
       },
-      "post_ms_p50": 64.4,
-      "post_ms_max": 1141.9
+      "post_ms_p50": 67.1,
+      "post_ms_max": 981.5
     },
     "end": {
       "orders": 2,
       "outcomes": {
-        "503 SYSTEM_BUSY": 2
+        "accepted": 2
       },
-      "post_ms_p50": 273.8,
-      "post_ms_max": 515.4
+      "post_ms_p50": 308.2,
+      "post_ms_max": 536.1
     }
   }
 }
