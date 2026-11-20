@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LAME Combined ADRs (ADR-001, ADR-002, ADR-003) — v2</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  @page {
+    size: A4 portrait;
+    margin: 9mm 10mm 9mm 10mm;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #0f172a;
+    line-height: 1.32;
+    font-size: 8.1pt;
+    background: #ffffff;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #0f172a;
+    padding-bottom: 5px;
+    margin-bottom: 7px;
+  }
+
+  .brand-area { display: flex; align-items: center; gap: 8px; }
+
+  .logo-badge {
+    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    color: #ffffff;
+    font-size: 9.8pt;
+    font-weight: 800;
+    padding: 4px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .title-content h1 {
+    font-size: 12.2pt;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.3px;
+    line-height: 1.12;
+  }
+
+  .title-content .subtitle {
+    font-size: 7.7pt;
+    font-weight: 500;
+    color: #475569;
+  }
+
+  .meta-pills {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 6.7pt;
+    font-weight: 700;
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
+  }
+
+  .meta-text { font-size: 7pt; color: #64748b; }
+
+  .tldr-box {
+    background: linear-gradient(to right, #f8fafc, #f0fdf4);
+    border: 1px solid #cbd5e1;
+    border-left: 3.5px solid #059669;
+    border-radius: 4px;
+    padding: 5px 8px;
+    margin-bottom: 7px;
+    font-size: 7.8pt;
+  }
+
+  .tldr-box strong {
+    color: #065f46;
+    text-transform: uppercase;
+    font-size: 7pt;
+    letter-spacing: 0.5px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 7px 0 4px;
+    break-after: avoid;
+  }
+
+  .section-tag {
+    font-size: 6.8pt;
+    font-weight: 700;
+    color: #ffffff;
+    background: #1e293b;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.3px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .section-title {
+    font-size: 8.8pt;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.2px;
+    text-transform: uppercase;
+  }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 6px; }
+
+  .card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 5px 7px;
+    break-inside: avoid;
+  }
+
+  .card-tint-c { background: #f8f7ff; border-color: #ddd6fe; }
+  .card-tint-warn { background: #fffdf5; border: 1px solid #fde68a; border-left: 3.5px solid #d97706; }
+  .card-tint-blue { background: #f8fafc; border-color: #cbd5e1; border-left: 3.5px solid #2563eb; }
+
+  .card h3 {
+    font-size: 7.9pt;
+    font-weight: 700;
+    color: #1e3a8a;
+    margin-bottom: 3px;
+  }
+
+  p { margin-bottom: 3px; }
+  ul, ol { padding-left: 14px; margin-bottom: 3px; }
+  li { margin-bottom: 1.5px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7.2pt;
+    margin-bottom: 6px;
+    break-inside: avoid;
+  }
+
+  th, td {
+    padding: 3.5px 5px;
+    border: 1px solid #e2e8f0;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    background: #f8fafc;
+    color: #334155;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 6.4pt;
+    letter-spacing: 0.4px;
+    border-bottom: 1.5px solid #cbd5e1;
+  }
+
+  tr:nth-child(even) td { background: #fbfcfe; }
+
+  .badge {
+    display: inline-block;
+    padding: 1px 4px;
+    font-size: 6.3pt;
+    font-weight: 700;
+    border-radius: 2px;
+  }
+
+  .badge-a { background: #dbeafe; color: #1e40af; }
+  .badge-b { background: #fee2e2; color: #991b1b; }
+  .badge-c { background: #e0e7ff; color: #3730a3; }
+  .badge-d { background: #fef3c7; color: #92400e; }
+  .badge-ok { background: #dcfce7; color: #166534; }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "calt" 0;
+    font-size: 6.8pt;
+    background: #f1f5f9;
+    padding: 0 3px;
+    border-radius: 2px;
+    color: #0f172a;
+  }
+
+  .flow-container {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 5px;
+    margin-bottom: 6px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr;
+    align-items: center;
+    gap: 4px;
+    font-size: 7pt;
+    break-inside: avoid;
+  }
+
+  .flow-node {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+    padding: 4px 6px;
+    height: 100%;
+  }
+
+  .flow-node-title {
+    font-weight: 700;
+    font-size: 7.2pt;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .flow-arrow { color: #64748b; font-weight: 800; font-size: 9pt; }
+
+  .fig-box {
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 4px;
+    background: #f8fafc;
+    break-inside: avoid;
+  }
+
+  .fig-box img {
+    width: 100%;
+    height: auto;
+    border-radius: 2px;
+    display: block;
+  }
+
+  .fig-cap {
+    font-size: 6.7pt;
+    color: #475569;
+    margin-top: 3px;
+    font-weight: 500;
+  }
+
+  .kpi-mini {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 4px 6px;
+  }
+  .kpi-mini .k { font-size: 6.3pt; text-transform: uppercase; color: #64748b; font-weight: 700; }
+  .kpi-mini .v { font-size: 9.5pt; font-weight: 800; color: #1e3a8a; font-family: 'JetBrains Mono', monospace; }
+  .kpi-mini .s { font-size: 6.5pt; color: #475569; }
+
+  .page-break { page-break-after: always; break-after: page; }
+
+  .adr-page { padding-top: 2px; }
+  .adr-band {
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    background: #ffffff;
+  }
+  .adr-band-title {
+    font-size: 7.4pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #1e3a8a;
+    margin-bottom: 3px;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 2px;
+  }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1: ADR-001 -->
+<div class="adr-page page-break">
+  <header>
+    <div class="brand-area">
+      <div class="logo-badge">ADR-001</div>
+      <div class="title-content">
+        <h1>Synchronous Pre-Trade Risk Gate (Service D) Failing Closed</h1>
+        <div class="subtitle">COMP41720 LAME · Decision Owner: Zongyan Yang (Service D) &middot; Team Aligned (A, B, C, D)</div>
+      </div>
+    </div>
+    <div class="meta-pills">
+      <div><span class="pill">ACCEPTED &middot; VERDICT: ACCEPT</span></div>
+      <div class="meta-text">Updated with 20 Nov 2026 live compose run</div>
+    </div>
+  </header>
+
+  <div class="tldr-box">
+    <strong>Decision Summary:</strong> Position <code>Service D (:8400)</code> as a single-instance, synchronous, rule-based pre-trade gate directly between <code>A</code> and <code>B</code>. Every order, cancel, and modify passes through <code>D</code>, failing closed on overload or outage so zero unvetted self-trades or wash trades ever execute on <code>B</code>.
+  </div>
+
+  <div class="adr-band">
+    <div class="adr-band-title">1. Context &amp; Load-Bearing Constraints</div>
+    <p>LAME must prevent self-trading (<strong>R1</strong>) and wash trading across seeded linked accounts (<strong>R2</strong>). Once an order enters Service B's matching thread and executes, fills are final; reversing ownership violates price-time priority for the counterparty. B replays its daily SQLite journal (<code>events-&lt;day&gt;.db</code>) bitwise after a crash and accepts only <strong>one</strong> upstream command WebSocket (<code>/d</code>). Therefore any risk check must precede B, operate deterministically, and respect that single command channel. Under overload or failure, the gate must choose between allowing unchecked orders (fail open) or refusing them (fail closed).</p>
+    <p style="margin-bottom:0;"><strong>Revisit / Flip Conditions:</strong> Reconsider if, under target bot load, load shedding refuses more legitimate orders than tolerable, or if B adds multiple command channels and a post-execution trade reversal mechanism.</p>
+  </div>
+
+  <div class="adr-band card-tint-blue">
+    <div class="adr-band-title">2. Decision (Active Voice)</div>
+    <p><strong>Zongyan Yang decided</strong> that <code>D (:8400)</code> operates as a single-instance, synchronous, deterministic gate between <code>A</code> and <code>B</code> carrying all trading commands (<code>new</code>, <code>cancel</code>, <code>modify</code>):</p>
+    <ul>
+      <li><strong>Deterministic Pure Rules (R1, R2):</strong> Rules read zero clocks, zero randomness, and zero external I/O, evaluating strictly against the order, D's in-memory full book view, and <code>linked_accounts.json</code>. Each decision records <code>(decision_no, features_seq, rule_version)</code> in SQLite WAL before forwarding to B.</li>
+      <li><strong>Synchronous 202 / Fail-Closed 503 + Ordered Outbox:</strong> D stores valid orders (<code>202</code> receipt) or refuses immediately (<code>503 RISK_UNAVAILABLE</code> / <code>RISK_BUSY</code> with nothing stored) and pushes outcomes via its ordered notification outbox (<code>notify_seq</code>).</li>
+      <li><strong>Queue Cap, Deadline &amp; Load Shedding:</strong> D enforces <code>DECISION_QUEUE_CAP = 1,000</code> and a <code>500 ms</code> gate deadline (<code>RISK_TIMEOUT</code>), while A sheds new orders before D's queue grows rather than disabling R2 under load.</li>
+    </ul>
+  </div>
+
+  <div class="adr-band">
+    <div class="adr-band-title">3. Consequences (Assessed Against Named Constraints)</div>
+    <table>
+      <thead><tr><th style="width:22%;">Constraint</th><th style="width:39%;">Positive Impact (Measured)</th><th style="width:39%;">Knowingly Accepted Trade-Off / Negative</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Zero Unvetted Matches</strong></td><td>Idempotency key <code>(user_id, order_id)</code> prevents duplicate sends: in 20 Nov 8 s pause test, 3 A retries stored <code>1</code> row in D and reached B once; self-trades rejected and holds released.</td><td>Judge-by-crossing limit heuristics without full queue simulation occasionally block legitimate linked trades (reported honestly in <code>d/evaluate.py</code>).</td></tr>
+        <tr><td><strong>Latency Budget</strong></td><td>Pure decision <code>p99</code> measured <code>1 ms</code> @ <code>200 orders/s</code> and <code>2 ms</code> @ <code>1,000 orders/s</code> (<code>tools/loadtest.py</code>), leaving headroom below A's 1 s shedding budget.</td><td>Synchronous hop compounds <code>A &rarr; D &rarr; B</code> tail latency under host contention or large book views.</td></tr>
+        <tr><td><strong>Availability &amp; Slowdown</strong></td><td>With D killed (~49 s, 20 Nov), A refused <code>79/80</code> orders in median <code>24 ms</code> with <code>0</code> USDT held and recovered <code>1.2 s</code> after D restarted; with 2 s artificial delay, D failed closed via <code>RISK_TIMEOUT</code> and A shed within <code>4.8 s</code>.</td><td>Single-point availability coupling: while D is down, no orders can be placed, cancelled, or modified, and settlement pauses until D reconnects to B and drains its outbox.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="adr-band">
+    <div class="adr-band-title">4. Alternatives Considered &amp; Rejected</div>
+    <ul>
+      <li><strong>Post-trade asynchronous surveillance:</strong> Keeps trading fast and off-path, but self-trades and wash trades execute and settle irreversibly in B before detection.</li>
+      <li><strong>ML / LLM classifier inside D:</strong> Catches subtler manipulation, but hundreds of milliseconds of latency and non-deterministic drift break bitwise crash replay.</li>
+      <li><strong>Degrade by dropping R2 (keep R1 only) under load:</strong> Preserves higher availability during bursts, but opens the cross-account wash-trading window precisely when an attacker floods the gate.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- PAGE 2: ADR-002 -->
+<div class="adr-page page-break">
+  <header>
+    <div class="brand-area">
+      <div class="logo-badge">ADR-002</div>
+      <div class="title-content">
+        <h1>Spot Funds Remain Held Until Service D's Notification Settles Order Fate</h1>
+        <div class="subtitle">COMP41720 LAME · Decision Owner: Pin-Yun Kuo (Service A) &middot; Team Aligned (A, B, C, D)</div>
+      </div>
+    </div>
+    <div class="meta-pills">
+      <div><span class="pill">ACCEPTED &middot; VERDICT: ACCEPT</span></div>
+      <div class="meta-text">Updated with 20 Nov 2026 fault &amp; consistency runs</div>
+    </div>
+  </header>
+
+  <div class="tldr-box">
+    <strong>Decision Summary:</strong> Once an order request may have reached Service D, Service A settles or releases held funds <strong>only</strong> upon receiving D's ordered notification (<code>notify_seq</code>) — never on an HTTP timeout or <code>202</code> acknowledgement — guaranteeing zero spot overdrafts (<code>CHECK (available >= 0)</code>).
+  </div>
+
+  <div class="adr-band">
+    <div class="adr-band-title">1. Context &amp; Load-Bearing Constraints</div>
+    <p><code>Service A (:8000, PostgreSQL)</code> is the sole writer of balances, holds, and order state. Spot trading enforces a hard zero-overdraft invariant: <code>CHECK (available >= 0)</code>. Any settlement violating it halts settlement across all users by design. When placing an order, A locks the hold in Postgres and sends HTTP <code>POST /v1/orders</code> to D, whose <code>202</code> response confirms queued receipt only. Actual outcomes (rejected, accepted, fills, cancels) arrive asynchronously via contiguous <code>notify_seq</code> pushes from D's outbox (applied sequentially at <code>29–46 notify/s</code> on a test laptop). An HTTP timeout is therefore ambiguous: D or B may already hold the live order.</p>
+    <p style="margin-bottom:0;"><strong>Revisit / Flip Conditions:</strong> Revisit if D returns final matching outcomes synchronously in the HTTP call, if B guarantees rejecting commands older than A's <code>2 s</code> timeout (turning timeout into "never placed"), or if users prefer occasional manual overdraft repair over brief fund freezes.</p>
+  </div>
+
+  <div class="adr-band card-tint-blue">
+    <div class="adr-band-title">2. Decision (Active Voice)</div>
+    <p><strong>Pin-Yun Kuo decided</strong> that once an order request may have left A, funds move strictly on D's notifications:</p>
+    <ul>
+      <li><strong>Immediate Release Only on Known Non-Send:</strong> Connection refused before send, or D returning synchronous <code>503</code> (saving no record), rejects and releases the hold at once.</li>
+      <li><strong><code>UNKNOWN</code> Hold Protocol:</strong> An unanswered send becomes <code>UNKNOWN</code> (shown as <em>"Confirming"</em> in React UI, which warns users not to re-submit); the hold stays while A retries the identical <code>order_id</code> (D deduplicates) for up to the <code>5 s</code> resend window before switching to cancellation, then cancels (tombstoned at D if unseen, rejecting any later order with <code>CANCELLED_BEFORE_SUBMIT</code>; B stores no tombstones and returns <code>OrderNotFound</code>), releasing funds only after D's notification confirms cancellation/rejection.</li>
+      <li><strong>Ordered Idempotent Settlement:</strong> A locks its <code>notify_seq</code> cursor row <code>FOR UPDATE</code>, returns <code>409 {"expected_seq": N}</code> on sequence gaps so D rewinds cleanly, and deduplicates fills by B's <code>(day, seq)</code>.</li>
+    </ul>
+  </div>
+
+  <div class="adr-band">
+    <div class="adr-band-title">3. Consequences (Assessed Against Named Constraints)</div>
+    <table>
+      <thead><tr><th style="width:22%;">Constraint</th><th style="width:39%;">Positive Impact (Measured)</th><th style="width:39%;">Knowingly Accepted Trade-Off / Negative</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Zero Overdraft / Ledger Integrity</strong></td><td>Verified across <code>220</code> Service A unit tests (including <code>100</code> concurrent holds on one balance) and a 20 Nov DB books check over <code>253</code> orders: <code>0</code> unexplained balances, <code>0</code> leaked holds, <code>0</code> orders in doubt, cursor = <code>730</code>.</td><td>Adds <code>UNKNOWN</code> order state, resend/query reconcilers, and transition-table tests across every status/notification pair; the UI only warns against double-submitting rather than hard-blocking.</td></tr>
+        <tr><td><strong>Resilience Under Freeze / Crash</strong></td><td>With D paused <code>3 s</code>, order held <code>47.500000 USDT</code> as <code>UNKNOWN</code> then reached <code>PROCESSING</code> <code>1.3 s</code> after thaw; with D paused <code>8 s</code> (&gt;<code>5 s</code> window), 3 retries created 1 D row and ended <code>CANCELLED</code> with <code>0</code> held <code>1.2 s</code> after thaw.</td><td>Freezes only funds of orders already in flight while D is down (new orders are refused before holding); outages exceeding the <code>5 s</code> resend window convert in-flight sends into cancellations.</td></tr>
+        <tr><td><strong>Throughput &amp; Observability</strong></td><td>Ordered single-row transactions prevent race conditions cleanly; <code>lame_a_orders_unsettled</code> and <code>lame_a_notify_cursor_age_seconds</code> expose stuck holds or lost D outbox state immediately.</td><td>Single-notification serialization caps laptop throughput at <code>~10–15 trades/s</code> (up to 3 notifications/trade). Batching contiguous <code>notify_seq</code> events in one TX resolves this later without changing ADR-002.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="adr-band">
+    <div class="adr-band-title">4. Alternatives Considered &amp; Rejected</div>
+    <ul>
+      <li><strong>Release hold on HTTP timeout:</strong> Restores user cash after <code>2 s</code>, but an in-flight order already in B can fill against re-spent cash and breach <code>CHECK (available >= 0)</code>, freezing global settlement.</li>
+      <li><strong>Two-Phase Commit (2PC) across A, D, B:</strong> Avoids <code>UNKNOWN</code> state, but stalls B's single sequential matching thread behind PostgreSQL locks and breaks crash recovery cleanly.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- PAGE 3: ADR-003 -->
+<div class="adr-page">
+  <header>
+    <div class="brand-area">
+      <div class="logo-badge">ADR-003</div>
+      <div class="title-content">
+        <h1>Decouple AI Market Analyst (Service C) Off the Critical Trading Path</h1>
+        <div class="subtitle">COMP41720 LAME · Decision Owner: Rushabh Mutha (Service C) &middot; Team Aligned (A, B, C, D)</div>
+      </div>
+    </div>
+    <div class="meta-pills">
+      <div><span class="pill">ACCEPTED &middot; VERDICT: ACCEPT</span></div>
+      <div class="meta-text">Updated with 20 Nov live + fault-injection runs</div>
+    </div>
+  </header>
+
+  <div class="tldr-box">
+    <strong>Decision Summary:</strong> Isolate <code>Service C (:8080)</code> as an independent off-path architecture quantum using asynchronous RabbitMQ ingestion (with DLQ), local SQLite FTS5 BM25 retrieval, passive read-only Service B WebSocket snapshots, and bounded <code>3.0 s</code> Ollama RAG — ensuring zero latency or failure propagation to <code>A &rarr; D &rarr; B</code>.
+  </div>
+
+  <div class="adr-band">
+    <div class="adr-band-title">1. Context &amp; Load-Bearing Constraints</div>
+    <p>LAME couples a deterministic spot exchange (<code>A &rarr; D &rarr; B</code>) with an AI analyst (<code>C</code>) running RAG over local Ollama (<code>llama3.2:1b</code>). Three constraints clash at this boundary: (1) <strong>Latency &amp; Determinism:</strong> order placement requires sub-second millisecond-bounded tail latency and bitwise replay, whereas LLM calls span <code>0.4 s</code> to a <code>3.0 s</code> timeout; (2) <strong>Consistency Divide:</strong> A's spot holds demand strict <strong>CP</strong> guarantees, whereas market explanations tolerate <strong>AP</strong> eventual consistency if freshness timestamps are disclosed; (3) <strong>Trust Boundary:</strong> external news feeds and chat prompts carry untrusted text (prompt injection, malformed JSON) that cannot share a failure domain or schema with A's ledger or B's journal.</p>
+    <p style="margin-bottom:0;"><strong>Revisit / Flip Conditions:</strong> Revisit only if product scope mandates AI-scored risk gating inside D's synchronous path or blocks spot trading whenever news ingestion lags.</p>
+  </div>
+
+  <div class="adr-band card-tint-blue">
+    <div class="adr-band-title">2. Decision (Active Voice)</div>
+    <p><strong>Rushabh Mutha decided</strong> to keep Service C off the trading path as a separate architecture quantum with zero synchronous inbound calls from A, D, or B:</p>
+    <ul>
+      <li><strong>Private Search Store:</strong> C owns an isolated SQLite WAL database (<code>news_c.db</code>) using deterministic <strong>FTS5 BM25</strong> with atomic <code>index_version</code>, sharing zero databases with peers.</li>
+      <li><strong>Async RabbitMQ + DLQ Ingestion:</strong> Scripted and activity news events traverse <code>news.direct &rarr; news_tasks</code> with idempotent <code>news_id</code> deduplication; malformed payloads <code>nack(requeue=False)</code> via <code>news.dlx</code> into <code>news.dlq</code>.</li>
+      <li><strong>Passive Read-Only Snapshots:</strong> C subscribes to B's <code>/md/&lt;symbol&gt;</code> WebSocket into an in-memory <code>MarketDataCache</code>, dropping <code>ts_ms &lt; existing</code>, refreshing liveness when B re-sends an unchanged <code>MarketData</code> snapshot (same <code>last_ms</code>, no separate heartbeat flag), resetting watermarks on reconnect, and flagging <code>is_stale = true</code> after <code>3.0 s</code> of silence.</li>
+      <li><strong>Guardrails, Spend Gate &amp; Bounded Calls:</strong> C screens injections/advice pre-LLM (<code>REJECTED_UNSAFE</code>), short-circuits empty BM25 hits pre-LLM (<code>INSUFFICIENT_EVIDENCE</code>), enforces <code>temperature = 0.0</code> JSON Schema output + post-LLM citation verification, and caps Ollama at <code>3.0 s</code> with UI fallback.</li>
+    </ul>
+  </div>
+
+  <div class="adr-band">
+    <div class="adr-band-title">3. Consequences (Assessed Against Named Constraints)</div>
+    <table>
+      <thead><tr><th style="width:22%;">Constraint</th><th style="width:39%;">Positive Impact (Measured)</th><th style="width:39%;">Knowingly Accepted Trade-Off / Negative</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Zero Trading Tax</strong></td><td>Stopping C or Ollama adds <code>0 ms</code> latency to <code>A &rarr; D &rarr; B</code>; during all 3 trading faults on 20 Nov, C kept serving answers while trading degraded and recovered cleanly.</td><td>Eventual consistency lag of ingestion delay plus up to <code>3.0 s</code> snapshot staleness (mitigated by surfacing <code>data_freshness_seconds</code>, <code>news_freshness_seconds</code>, and <code>index_version</code>).</td></tr>
+        <tr><td><strong>Fault &amp; Poison Isolation</strong></td><td>Poison JSON routes deterministically to <code>news.dlq</code> (verified in 20 Nov compose + <code>F3</code>: DLQ incremented <code>1 &rarr; 2</code> while valid items indexed immediately); strict Ollama fault exits in <code>20.3 ms</code> with <code>503</code> or <code>10.5 ms</code> deterministic fallback (<code>F1</code>).</td><td>Larger operational footprint: adds RabbitMQ, Ollama (<code>~2 GB</code> RAM), SQLite volume, and controlled duplication of symbol normalization across A, B, and C.</td></tr>
+        <tr><td><strong>Trust &amp; Token Spend</strong></td><td>Pre-LLM gates saved <code>4,900</code> tokens in the 20 Nov compose run and <code>700</code> tokens in <code>F4</code> with <code>0</code> LLM tokens spent; citation verifier strips unretrieved IDs.</td><td>BM25 relies on lexical/entity token matching rather than dense vectors (mitigated via ticker aliases in <code>service_c/catalog.py</code>).</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="adr-band">
+    <div class="adr-band-title">4. Alternatives Considered &amp; Rejected</div>
+    <ul>
+      <li><strong>Embed RAG inside Service A:</strong> Removes one container and CORS surface, but exposes balance-hold worker threads and PostgreSQL pools to 3 s LLM brownouts and untrusted prompts.</li>
+      <li><strong>Synchronous REST from C to A/B per question:</strong> Avoids <code>MarketDataCache</code>, but couples chat traffic bursts directly onto trading engines.</li>
+      <li><strong>Vector embeddings DB + Saga coordination:</strong> Vector runtime adds VRAM/latency drift; Sagas are unneeded for read-only explanations with zero state mutations.</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

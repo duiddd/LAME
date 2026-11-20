@@ -20,6 +20,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional
+import uuid
 
 from pydantic import ValidationError
 
@@ -39,6 +40,7 @@ class NewsIngestionPipeline:
         self.rabbitmq_connected: bool = False
         self._amqp_conn = None
         self._amqp_channel = None
+        self._replay_queues: dict[str, asyncio.Queue[dict]] = {}
 
     def process_raw_news_payload(self, raw_line: str) -> dict:
         """Consumer handler: validates, sanitizes, and indexes a single raw payload or routes to DLQ."""
@@ -122,6 +124,12 @@ class NewsIngestionPipeline:
             async def _on_amqp_message(message) -> None:
                 raw_body = message.body.decode("utf-8", errors="replace")
                 outcome = self.process_raw_news_payload(raw_body)
+                headers = getattr(message, "headers", None) or {}
+                replay_id = headers.get("replay_id")
+                if isinstance(replay_id, bytes):
+                    replay_id = replay_id.decode("utf-8", errors="ignore")
+                if isinstance(replay_id, str) and replay_id in self._replay_queues:
+                    await self._replay_queues[replay_id].put(outcome)
                 if outcome.get("status") == "routed_to_dlq":
                     # Reject with requeue=False -> RabbitMQ routes message via news.dlx to news.dlq
                     await message.nack(requeue=False)
@@ -151,7 +159,25 @@ class NewsIngestionPipeline:
             self._amqp_conn = None
             self.rabbitmq_connected = False
 
-    async def publish_raw_line(self, raw_line: str) -> dict:
+    @staticmethod
+    def _tally_outcomes(outcomes: list[dict]) -> tuple[int, int, int, int]:
+        indexed_new = 0
+        deduplicated = 0
+        routed_to_dlq = 0
+        sanitized_count = 0
+        for outcome in outcomes:
+            st = outcome.get("status")
+            if st == "indexed":
+                indexed_new += 1
+            elif st == "deduplicated_noop":
+                deduplicated += 1
+            elif st == "routed_to_dlq":
+                routed_to_dlq += 1
+            if outcome.get("sanitized"):
+                sanitized_count += 1
+        return indexed_new, deduplicated, routed_to_dlq, sanitized_count
+
+    async def publish_raw_line(self, raw_line: str, headers: Optional[dict] = None) -> dict:
         """Publishes a raw JSONL line through RabbitMQ (if connected) or local consumer pipeline."""
         if self.rabbitmq_connected and self._amqp_channel is not None:
             try:
@@ -162,6 +188,7 @@ class NewsIngestionPipeline:
                     aio_pika.Message(
                         body=raw_line.encode("utf-8"),
                         delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                        headers=headers,
                     ),
                     routing_key=settings.news_routing_key,
                 )
@@ -191,25 +218,38 @@ class NewsIngestionPipeline:
             for line in path.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        indexed_new = 0
-        deduplicated = 0
-        routed_to_dlq = 0
-        sanitized_count = 0
+        outcomes: list[dict] = []
 
-        for line in lines:
-            if self.rabbitmq_connected and self._amqp_channel is not None:
-                await self.publish_raw_line(line)
-            else:
-                outcome = self.process_raw_news_payload(line)
-                st = outcome.get("status")
-                if st == "indexed":
-                    indexed_new += 1
-                elif st == "deduplicated_noop":
-                    deduplicated += 1
-                elif st == "routed_to_dlq":
-                    routed_to_dlq += 1
-                if outcome.get("sanitized"):
-                    sanitized_count += 1
+        if self.rabbitmq_connected and self._amqp_channel is not None:
+            replay_id = uuid.uuid4().hex
+            queue: asyncio.Queue[dict] = asyncio.Queue()
+            self._replay_queues[replay_id] = queue
+            try:
+                amqp_expected = 0
+                for line in lines:
+                    res = await self.publish_raw_line(line, headers={"replay_id": replay_id})
+                    if "status" in res:
+                        outcomes.append(res)
+                    else:
+                        amqp_expected += 1
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + 2.5
+                while amqp_expected > 0:
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        break
+                    try:
+                        outcomes.append(await asyncio.wait_for(queue.get(), timeout=remaining))
+                        amqp_expected -= 1
+                    except asyncio.TimeoutError:
+                        break
+            finally:
+                self._replay_queues.pop(replay_id, None)
+        else:
+            for line in lines:
+                outcomes.append(self.process_raw_news_payload(line))
+
+        indexed_new, deduplicated, routed_to_dlq, sanitized_count = self._tally_outcomes(outcomes)
 
         return {
             "broker_mode": self.broker_mode,

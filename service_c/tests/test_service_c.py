@@ -320,3 +320,37 @@ def test_http_4xx_excluded_from_server_error_rate(isolated_env):
         after = metrics.summary_dict()
         assert after["http_4xx_total"] == before_4xx + 1
         assert after["http_errors_total"] == before_5xx
+
+
+def test_peer_scrape_failure_isolation():
+    """A stalled peer DNS/TCP timeout never marks healthy peers OFFLINE and keeps primary error."""
+    import asyncio
+    from service_c.observability import ObservabilityAggregator
+
+    agg = ObservabilityAggregator()
+
+    async def fake_scrape_one(client, urls):
+        url = urls[0]
+        if "8400" in url or "service-d" in url:
+            await asyncio.sleep(0.5)
+            return None, url, f"ConnectTimeout: {url}"
+        if "8000" in url or "service-a" in url:
+            return 'lame_a_orders_total{result="accepted"} 4\n', url, None
+        return 'lame_b_commands_total{symbol="BTC-USDT"} 6\n', url, None
+
+    agg._scrape_one = fake_scrape_one  # type: ignore[method-assign]
+
+    async def run():
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            return await asyncio.gather(
+                agg._scrape_one_isolated(client, ["http://service-a:8000/metrics", "http://127.0.0.1:8000/metrics"], per_target_timeout=0.1),
+                agg._scrape_one_isolated(client, ["http://service-b:11659/metrics", "http://127.0.0.1:11659/metrics"], per_target_timeout=0.1),
+                agg._scrape_one_isolated(client, ["http://service-d:8400/metrics", "http://127.0.0.1:8400/metrics"], per_target_timeout=0.1),
+            )
+
+    res_a, res_b, res_d = asyncio.run(run())
+    assert res_a[0] is not None and res_a[2] is None
+    assert res_b[0] is not None and res_b[2] is None
+    assert res_d[0] is None and "service-d:8400" in (res_d[2] or "")

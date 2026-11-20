@@ -34,7 +34,7 @@ rejected because it would hold A’s row locks while B’s single matching threa
   order into a cancel: with D paused for 8 seconds, the order ended as `CANCELLED` and its hold was returned 1.2 seconds after D
   became available again.
 - Users see “Confirming” instead of a plain failure and must not place the order again, in accordance with the rule
-  that one click results in at most one order: the user interface enforces this, and the cost is one additional order state and its
+  that one click results in at most one order: the user interface warns against it, and the cost is one additional order state and its
   transition tests (every status and notification pair is enumerated).
 - Settlement follows D’s ordered delivery, which limits A to approximately 10 to 15 trades per second on the laptop
   (up to three notifications per trade): sufficient for the demonstration’s bots, but not for heavy bot load. Applying a

@@ -171,16 +171,34 @@ class ObservabilityAggregator:
         client: httpx.AsyncClient,
         urls: list[str],
     ) -> tuple[Optional[str], Optional[str], Optional[str]]:
-        last_err: Optional[str] = None
+        first_err: Optional[str] = None
         for url in urls:
             try:
                 resp = await client.get(url)
                 if resp.status_code == 200 and ("# " in resp.text or "lame_" in resp.text):
                     return resp.text, url, None
-                last_err = f"HTTP {resp.status_code} from {url}"
+                err = f"HTTP {resp.status_code} from {url}"
             except Exception as exc:
-                last_err = f"{type(exc).__name__}: {url}"
-        return None, urls[0] if urls else None, last_err
+                err = f"{type(exc).__name__}: {url}"
+            if first_err is None:
+                first_err = err
+        return None, urls[0] if urls else None, first_err
+
+    async def _scrape_one_isolated(
+        self,
+        client: httpx.AsyncClient,
+        urls: list[str],
+        per_target_timeout: float = 0.9,
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Bounds each peer scrape independently so one stopped container never stalls peers."""
+        try:
+            return await asyncio.wait_for(
+                self._scrape_one(client, urls),
+                timeout=per_target_timeout,
+            )
+        except Exception as exc:
+            primary_url = urls[0] if urls else None
+            return None, primary_url, f"Scrape timeout ({type(exc).__name__}): {primary_url}"
 
     @staticmethod
     def _normalize_service_a(raw: Optional[str], scrape_url: Optional[str], err: Optional[str]) -> dict:
@@ -428,28 +446,19 @@ class ObservabilityAggregator:
             res_b = (raw_b, "override://service-b/metrics", None if raw_b else "not provided")
             res_d = (raw_d, "override://service-d/metrics", None if raw_d else "not provided")
         else:
-            timeout = httpx.Timeout(0.8, connect=0.25)
-            try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    res_a, res_b, res_d = await asyncio.wait_for(
-                        asyncio.gather(
-                            self._scrape_one(
-                                client, self._candidate_urls(settings.service_a_url, 8000)
-                            ),
-                            self._scrape_one(
-                                client, self._candidate_urls(settings.service_b_ctrl_url, 11659)
-                            ),
-                            self._scrape_one(
-                                client, self._candidate_urls(settings.service_d_url, 8400)
-                            ),
-                        ),
-                        timeout=1.2,
-                    )
-            except Exception as exc:
-                err_msg = f"Scrape timeout: {type(exc).__name__}"
-                res_a = (None, f"{settings.service_a_url}/metrics", err_msg)
-                res_b = (None, f"{settings.service_b_ctrl_url}/metrics", err_msg)
-                res_d = (None, f"{settings.service_d_url}/metrics", err_msg)
+            timeout = httpx.Timeout(0.75, connect=0.25)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                res_a, res_b, res_d = await asyncio.gather(
+                    self._scrape_one_isolated(
+                        client, self._candidate_urls(settings.service_a_url, 8000)
+                    ),
+                    self._scrape_one_isolated(
+                        client, self._candidate_urls(settings.service_b_ctrl_url, 11659)
+                    ),
+                    self._scrape_one_isolated(
+                        client, self._candidate_urls(settings.service_d_url, 8400)
+                    ),
+                )
 
         svc_a = self._normalize_service_a(*res_a)
         svc_b = self._normalize_service_b(*res_b)

@@ -1,0 +1,63 @@
+{
+  "generated_at": "2026-11-20T16:06:46.505114+00:00",
+  "service": "service-c-news-ai-analyst",
+  "scenarios": {
+    "F1_ollama_brownout_or_down": {
+      "strict_status_code": 503,
+      "strict_body_status": "SERVICE_UNAVAILABLE",
+      "strict_latency_ms": 22.59,
+      "degraded_status_code": 200,
+      "degraded_body_status": "ANSWERED",
+      "degraded_engine": "deterministic-grounded-synthesizer",
+      "degraded_citations": [
+        "news_20261023_001",
+        "news_20261023_006"
+      ],
+      "degraded_latency_ms": 14.65,
+      "news_feed_status_during_outage": 200,
+      "pass": true
+    },
+    "F2_service_b_ws_silence_and_resend": {
+      "stale_after_4_5s_silence": true,
+      "stale_freshness_s": 4.5,
+      "recovered_after_unchanged_resend": true,
+      "recovered_freshness_s": 0.0,
+      "pass": true
+    },
+    "F3_poison_news_dlq_isolation": {
+      "dlq_before": 1,
+      "poison_outcome": "routed_to_dlq",
+      "dlq_after_poison": 2,
+      "valid_outcome_after_poison": "indexed",
+      "index_version_after_valid": 6,
+      "pass": true
+    },
+    "F4_pre_llm_safety_and_cost_gates": {
+      "injection_status": "REJECTED_UNSAFE",
+      "injection_reason": "unsafe_injection",
+      "insufficient_status": "INSUFFICIENT_EVIDENCE",
+      "insufficient_reason": "insufficient_evidence",
+      "llm_tokens_delta": 0,
+      "tokens_saved_delta": 700,
+      "pass": true
+    },
+    "F5_observability_single_peer_timeout_isolation": {
+      "service_a_status": "degraded",
+      "service_a_server_errors_5xx": 2,
+      "service_a_client_4xx": 1,
+      "service_b_status": "up",
+      "service_b_order_events": 10,
+      "service_d_status": "offline",
+      "service_d_error": "Scrape timeout (TimeoutError): http://service-d:8400/metrics",
+      "pass": true
+    },
+    "F6_service_c_down_zero_trading_impact": {
+      "synchronous_dependents_on_c": 0,
+      "trading_path": "A -> D -> B (C never invoked)",
+      "expected_frontend_degradation": "AI analyst offline. Trading is not affected.",
+      "startup_index_version": 5,
+      "pass": true
+    }
+  },
+  "all_passed": true
+}
