@@ -5,12 +5,15 @@ import { balances, day, fills, listeners, markets, orders, push, pushed, session
 
 const fixed = (units: number, decimals: number) => (units / 10 ** decimals).toFixed(decimals);
 const INTERVALS: Record<string, number> = { "5s": 5000, "15s": 15000, "1m": 60000, "5m": 300000 };
-const DEC: Record<string, number> = { USDT: 5, BTC: 3, ETH: 3, SOL: 3, NVDA: 3, AAPL: 3, ASML: 3, TSM: 3, RELIANCE: 3, GOLD: 3 };
+// The team grid (B's pairs.json): 6 quantity decimals, USDT 6 decimals.
+const QD = 6;
+const LOT: Record<string, string> = { "BTC-USDT": "0.0001", "ETH-USDT": "0.001" };
+const DEC: Record<string, number> = { USDT: 6, BTC: QD, ETH: QD, SOL: QD, NVDA: QD, AAPL: QD, ASML: QD, TSM: QD, RELIANCE: QD, GOLD: QD };
 
 function balance(asset: string): Balance {
   let b = balances.find((x) => x.asset === asset);
   if (!b) {
-    const d = DEC[asset] ?? 3;
+    const d = DEC[asset] ?? QD;
     b = { asset, available: fixed(0, d), held: fixed(0, d), total: fixed(0, d) };
     balances.push(b);
   }
@@ -19,7 +22,7 @@ function balance(asset: string): Balance {
 
 function adjust(asset: string, available: number, held: number) {
   const b = balance(asset);
-  const d = DEC[asset] ?? 3;
+  const d = DEC[asset] ?? QD;
   b.available = (Number(b.available) + available).toFixed(d);
   b.held = (Number(b.held) + held).toFixed(d);
   b.total = (Number(b.available) + Number(b.held)).toFixed(d);
@@ -42,7 +45,7 @@ function run(order: Order) {
     if (order.cancel_requested || order.status !== "PROCESSING") {
       return;
     }
-    const part = order.type === "MARKET" ? qty : Number((qty / 2).toFixed(3));
+    const part = order.type === "MARKET" ? qty : Number((qty / 2).toFixed(QD));
     const fillPrice = order.type === "MARKET" ? lastPrice : order.price!;
     if (order.side === "BUY") {
       adjust(quote, 0, -part * price);
@@ -51,11 +54,11 @@ function run(order: Order) {
       adjust(base, 0, -part);
       adjust(quote, part * Number(fillPrice), 0);
     }
-    fills.unshift({ b_day: day(), b_seq: fills.length + 1, order_id: order.order_id, symbol: order.symbol, side: order.side, role: "TAKER", price: fillPrice, qty: part.toFixed(3), ts: Date.now() });
+    fills.unshift({ b_day: day(), b_seq: fills.length + 1, order_id: order.order_id, symbol: order.symbol, side: order.side, role: "TAKER", price: fillPrice, qty: part.toFixed(QD), ts: Date.now() });
     emit(order, {
       status: part === qty ? "FILLED" : "PARTIALLY_FILLED",
-      filled_qty: part.toFixed(3),
-      settled_qty: part.toFixed(3),
+      filled_qty: part.toFixed(QD),
+      settled_qty: part.toFixed(QD),
       avg_fill_price: fillPrice,
     });
   }, 1500);
@@ -107,8 +110,8 @@ const handlers = [
       type: body.type,
       price: body.price,
       qty: body.qty,
-      filled_qty: "0.000",
-      settled_qty: "0.000",
+      filled_qty: (0).toFixed(QD),
+      settled_qty: (0).toFixed(QD),
       avg_fill_price: null,
       status: "SENT",
       reason: null,
@@ -161,7 +164,7 @@ const handlers = [
     HttpResponse.json({
       symbols: Object.entries(markets).map(([symbol, m]) => {
         const [base, quote] = symbol.split("-");
-        return { symbol, base, quote, tick: "0.01", lot: "0.001", price_decimals: 2, qty_decimals: 3, day: day(), day_open: fixed(m.dayOpen, 2) };
+        return { symbol, base, quote, tick: "0.01", lot: LOT[symbol] ?? "0.0001", price_decimals: 2, qty_decimals: QD, day: day(), day_open: fixed(m.dayOpen, 2) };
       }),
     }),
   ),
@@ -191,7 +194,7 @@ const handlers = [
         buckets.set(key, { t: key, o: t.price, h: t.price, l: t.price, c: t.price, v: t.qty });
       }
     }
-    const candles = [...buckets.values()].slice(-300).map((b) => ({ t: b.t, o: fixed(b.o, 2), h: fixed(b.h, 2), l: fixed(b.l, 2), c: fixed(b.c, 2), v: fixed(b.v, 3) }));
+    const candles = [...buckets.values()].slice(-300).map((b) => ({ t: b.t, o: fixed(b.o, 2), h: fixed(b.h, 2), l: fixed(b.l, 2), c: fixed(b.c, 2), v: fixed(b.v, QD) }));
     return HttpResponse.json({ symbol, interval, candles, watermark: { b_day: day(), b_seq: last.seq }, replace_all: !afterSeq });
   }),
 ];
