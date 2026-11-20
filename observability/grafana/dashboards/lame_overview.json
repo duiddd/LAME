@@ -19,7 +19,7 @@
         { "refId": "A", "expr": "sum(rate(lame_a_http_request_duration_seconds_count[1m]))", "legendFormat": "Service A (HTTP)" },
         { "refId": "B", "expr": "sum(rate(lame_b_commands_total[1m]))", "legendFormat": "Service B (Commands)" },
         { "refId": "C", "expr": "sum(rate(lame_c_http_requests_total[1m]))", "legendFormat": "Service C (HTTP)" },
-        { "refId": "D", "expr": "sum(rate(lame_d_decisions_total[1m])) + (sum(rate(lame_d_refused_total[1m])) or vector(0))", "legendFormat": "Service D (Orders)" }
+        { "refId": "D", "expr": "(sum(rate(lame_d_decisions_total[1m])) or vector(0)) + (sum(rate(lame_d_refused_total[1m])) or vector(0))", "legendFormat": "Service D (Orders)" }
       ]
     },
     {
@@ -33,7 +33,8 @@
         { "refId": "E", "expr": "sum(rate(lame_a_http_request_duration_seconds_count{status=~\"5..\"}[1m])) or vector(0)", "legendFormat": "Service A HTTP 5xx" },
         { "refId": "B", "expr": "rate(lame_b_bad_frames_total[1m]) + rate(lame_b_outbound_overflows_total[1m])", "legendFormat": "Service B Frame/Overflow Errors" },
         { "refId": "C", "expr": "sum(rate(lame_c_http_errors_total[1m]))", "legendFormat": "Service C HTTP 4xx/5xx" },
-        { "refId": "D", "expr": "sum(rate(lame_d_refused_total[1m])) or vector(0)", "legendFormat": "Service D 503 Refusals" }
+        { "refId": "D", "expr": "sum(rate(lame_d_refused_total[1m])) or vector(0)", "legendFormat": "Service D 503 Refusals" },
+        { "refId": "F", "expr": "sum(rate(lame_d_decisions_total{decision=\"REJECTED\"}[1m])) or vector(0)", "legendFormat": "Service D Risk Rejections (REJECTED)" }
       ]
     },
     {

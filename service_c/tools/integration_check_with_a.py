@@ -358,6 +358,40 @@ async def run_checks() -> None:
             dash_resp.status_code == 200 and "LAME OBSERVABILITY" in dash_resp.text,
         )
 
+        # Verify real label mapping for D (APPROVED/REJECTED), A (status + accepted vs refused), and B (OrderEvent/Trade)
+        from service_c.observability import ObservabilityAggregator
+
+        agg_check = await ObservabilityAggregator().collect(
+            override_scrapes={
+                "service-a": (
+                    'lame_a_http_request_duration_seconds_count{endpoint="/api/orders",method="POST",status="201"} 4\n'
+                    'lame_a_http_request_duration_seconds_count{endpoint="/api/orders",method="POST",status="400"} 1\n'
+                    'lame_a_orders_total{result="accepted"} 4\n'
+                    'lame_a_orders_total{result="INSUFFICIENT_BALANCE"} 1\n'
+                ),
+                "service-b": (
+                    'lame_b_commands_total{symbol="BTC-USDT"} 6\n'
+                    'lame_b_outputs_total{kind="OrderEvent"} 5\n'
+                    'lame_b_bad_frames_total 1\n'
+                ),
+                "service-d": (
+                    'lame_d_decisions_total{decision="APPROVED",reason=""} 3\n'
+                    'lame_d_decisions_total{decision="REJECTED",reason="SELF_TRADE"} 2\n'
+                    'lame_d_refused_total{reason="RISK_BUSY"} 1\n'
+                ),
+            }
+        )
+        by_svc = {s["id"]: s for s in agg_check["services"]}
+        check(
+            "ObservabilityAggregator parses D REJECTED, A 4xx/5xx/order refusals, and B outputs accurately",
+            by_svc["service-d"]["errors_total"] == 3
+            and by_svc["service-d"]["key_gauges"]["rejected_decisions"] == 2
+            and by_svc["service-a"]["errors_total"] == 1
+            and by_svc["service-b"]["errors_total"] == 1
+            and by_svc["service-b"]["key_gauges"]["outputs_total"] == 5,
+            by_svc,
+        )
+
     print(f"\nALL {len(PASSED)} SERVICE A <-> SERVICE C INTEGRATION CHECKS PASSED", flush=True)
 
 

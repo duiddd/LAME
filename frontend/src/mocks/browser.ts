@@ -71,12 +71,16 @@ const handlers = [
     const body = (await request.json()) as { username: string };
     session.signedIn = true;
     user.username = body.username;
+    user.role = body.username === "admin" ? "ADMIN" : "USER";
+    user.user_id = body.username === "admin" ? 1000 : 100001;
     return HttpResponse.json(user);
   }),
   http.post("/api/auth/register", async ({ request }) => {
     const body = (await request.json()) as { username: string };
     session.signedIn = true;
     user.username = body.username;
+    user.role = "USER";
+    user.user_id = 100001;
     return HttpResponse.json(user, { status: 201 });
   }),
   http.post("/api/auth/logout", () => {

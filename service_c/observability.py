@@ -145,6 +145,9 @@ class ObservabilityAggregator:
 
     def _update_rate_rps(self, service_id: str, cumulative_requests: float, now_mono: float) -> float:
         hist = self._rate_history[service_id]
+        if hist and cumulative_requests < hist[-1][1]:
+            # Peer restarted and reset its Prometheus counter.
+            hist.clear()
         hist.append((now_mono, cumulative_requests))
         if len(hist) >= 2:
             oldest_t, oldest_reqs = hist[0]
@@ -197,20 +200,31 @@ class ObservabilityAggregator:
                 "key_gauges": {},
             }
         p = parse_prometheus_text(raw)
+        http_samples = p.samples.get("lame_a_http_request_duration_seconds_count", [])
         http_reqs = p.sum_metric("lame_a_http_request_duration_seconds_count")
         order_reqs = p.sum_metric("lame_a_orders_total")
         reqs = int(http_reqs if http_reqs > 0 else order_reqs)
-        order_errs = p.sum_metric(
-            "lame_a_orders_total",
-            {"result": {"SYSTEM_BUSY", "RISK_REJECTED", "NO_FRESH_PRICE", "REJECTED"}},
+        order_refused = sum(
+            val
+            for labels, val in p.samples.get("lame_a_orders_total", [])
+            if val == val and labels.get("result", "") != "accepted"
         )
-        other_errs = (
-            p.sum_metric("lame_a_auth_failures_total")
-            + p.sum_metric("lame_a_notify_failures_total")
-            + p.sum_metric("lame_a_md_bad_messages_total")
-            + p.sum_metric("lame_a_notification_gaps_total")
-        )
-        errs = int(order_errs + other_errs)
+        has_http_status = any("status" in labels for labels, _ in http_samples)
+        if has_http_status:
+            http_errs = sum(
+                val
+                for labels, val in http_samples
+                if val == val and labels.get("status", "").isdigit() and int(labels["status"]) >= 400
+            )
+            errs = int(http_errs + p.sum_metric("lame_a_md_bad_messages_total"))
+        else:
+            other_errs = (
+                p.sum_metric("lame_a_auth_failures_total")
+                + p.sum_metric("lame_a_notify_failures_total")
+                + p.sum_metric("lame_a_md_bad_messages_total")
+                + p.sum_metric("lame_a_notification_gaps_total")
+            )
+            errs = int(order_refused + other_errs)
         lat = p.histogram_quantiles_ms("lame_a_http_request_duration_seconds")
         order_lat = p.histogram_quantiles_ms("lame_a_order_completion_seconds")
         circuit_val = int(p.gauge_value("lame_a_circuit_state"))
@@ -234,6 +248,7 @@ class ObservabilityAggregator:
             "key_gauges": {
                 "circuit_breaker": circuit_label,
                 "shedding_active": bool(p.gauge_value("lame_a_shedding_active") > 0),
+                "orders_refused": int(order_refused),
                 "orders_unsettled": int(p.gauge_value("lame_a_orders_unsettled")),
                 "notify_cursor_age_s": round(p.gauge_value("lame_a_notify_cursor_age_seconds"), 2),
             },
@@ -268,7 +283,6 @@ class ObservabilityAggregator:
         errs = int(
             p.sum_metric("lame_b_bad_frames_total")
             + p.sum_metric("lame_b_outbound_overflows_total")
-            + p.sum_metric("lame_b_outputs_total", {"kind": "rejected"})
         )
         journal_failed = int(p.gauge_value("lame_b_journal_failed"))
         replay_ms = round(p.gauge_value("lame_b_replay_duration_seconds") * 1000.0, 2)
@@ -293,6 +307,7 @@ class ObservabilityAggregator:
             },
             "key_gauges": {
                 "md_subscribers": int(p.gauge_value("lame_b_md_subscribers")),
+                "outputs_total": int(p.sum_metric("lame_b_outputs_total")),
                 "journal_backlog": int(p.gauge_value("lame_b_journal_backlog")),
                 "outbound_backlog": int(p.gauge_value("lame_b_outbound_backlog")),
                 "replay_records": int(p.gauge_value("lame_b_replay_records")),
@@ -321,7 +336,8 @@ class ObservabilityAggregator:
         decisions = p.sum_metric("lame_d_decisions_total")
         refused = p.sum_metric("lame_d_refused_total")
         reqs = int(decisions + refused)
-        rejected = p.sum_metric("lame_d_decisions_total", {"decision": "REJECT"})
+        approved = p.sum_metric("lame_d_decisions_total", {"decision": "APPROVED"})
+        rejected = p.sum_metric("lame_d_decisions_total", {"decision": "REJECTED"})
         errs = int(refused + rejected)
         lat = p.histogram_quantiles_ms("lame_d_decision_seconds")
         ready = int(p.gauge_value("lame_d_ready"))
@@ -341,7 +357,10 @@ class ObservabilityAggregator:
             "key_gauges": {
                 "ready": bool(ready == 1),
                 "b_connected": bool(b_conn == 1),
+                "approved_decisions": int(approved),
+                "rejected_decisions": int(rejected),
                 "decision_queue": int(p.gauge_value("lame_d_decision_queue")),
+                "timed_out_orders": int(p.gauge_value("lame_d_timed_out_orders")),
                 "outbox_backlog": int(p.gauge_value("lame_d_outbox_backlog")),
                 "feature_lag_s": round(p.gauge_value("lame_d_feature_lag_seconds"), 3),
             },
@@ -398,7 +417,7 @@ class ObservabilityAggregator:
             res_b = (raw_b, "override://service-b/metrics", None if raw_b else "not provided")
             res_d = (raw_d, "override://service-d/metrics", None if raw_d else "not provided")
         else:
-            timeout = httpx.Timeout(0.35, connect=0.15)
+            timeout = httpx.Timeout(0.8, connect=0.25)
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     res_a, res_b, res_d = await asyncio.wait_for(
@@ -413,7 +432,7 @@ class ObservabilityAggregator:
                                 client, self._candidate_urls(settings.service_d_url, 8400)
                             ),
                         ),
-                        timeout=0.75,
+                        timeout=1.2,
                     )
             except Exception as exc:
                 err_msg = f"Scrape timeout: {type(exc).__name__}"

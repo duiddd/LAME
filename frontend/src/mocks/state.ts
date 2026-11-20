@@ -1,4 +1,4 @@
-import type { Balance, Fill, MarketData, Order } from "../shared/types";
+import type { Balance, Fill, MarketData, Order, User } from "../shared/types";
 
 /** The fake backend's memory for mock mode. Prices are in cents and quantities in thousandths. */
 
@@ -64,7 +64,7 @@ export function onTrade(symbol: string): void {
   m.volume += qty;
 }
 
-export const user = { user_id: 100001, username: "demo" };
+export const user: User = { user_id: 100001, username: "demo", role: "USER" };
 export const session = { signedIn: false };
 export const orders: Order[] = [];
 export const fills: Fill[] = [];

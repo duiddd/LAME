@@ -240,13 +240,16 @@ def test_observability_aggregator_parses_all_four_services_and_ai_cost():
     agg = ObservabilityAggregator()
     sample_a = """
 # TYPE lame_a_http_request_duration_seconds histogram
-lame_a_http_request_duration_seconds_bucket{endpoint="/orders",le="0.01"} 8
-lame_a_http_request_duration_seconds_bucket{endpoint="/orders",le="0.05"} 10
-lame_a_http_request_duration_seconds_bucket{endpoint="/orders",le="+Inf"} 10
-lame_a_http_request_duration_seconds_sum{endpoint="/orders"} 0.08
-lame_a_http_request_duration_seconds_count{endpoint="/orders"} 10
-lame_a_orders_total{result="FILLED"} 9
-lame_a_orders_total{result="SYSTEM_BUSY"} 1
+lame_a_http_request_duration_seconds_bucket{endpoint="/api/orders",method="POST",status="201",le="0.01"} 6
+lame_a_http_request_duration_seconds_bucket{endpoint="/api/orders",method="POST",status="201",le="0.05"} 7
+lame_a_http_request_duration_seconds_bucket{endpoint="/api/orders",method="POST",status="201",le="+Inf"} 7
+lame_a_http_request_duration_seconds_sum{endpoint="/api/orders",method="POST",status="201"} 0.05
+lame_a_http_request_duration_seconds_count{endpoint="/api/orders",method="POST",status="201"} 7
+lame_a_http_request_duration_seconds_count{endpoint="/api/orders",method="POST",status="400"} 1
+lame_a_http_request_duration_seconds_count{endpoint="/api/orders",method="POST",status="503"} 2
+lame_a_orders_total{result="accepted"} 7
+lame_a_orders_total{result="INSUFFICIENT_BALANCE"} 1
+lame_a_orders_total{result="SYSTEM_BUSY"} 2
 lame_a_circuit_state 0
 lame_a_shedding_active 0
 lame_a_orders_unsettled 0
@@ -255,7 +258,8 @@ lame_a_orders_unsettled 0
 lame_b_commands_total{symbol="BTC-USDT"} 15
 lame_b_bad_frames_total 1
 lame_b_outbound_overflows_total 0
-lame_b_outputs_total{kind="rejected"} 0
+lame_b_outputs_total{kind="OrderEvent"} 12
+lame_b_outputs_total{kind="Trade"} 3
 lame_b_replay_duration_seconds 0.004
 lame_b_replay_records 15
 lame_b_md_subscribers 3
@@ -267,12 +271,14 @@ lame_d_decision_seconds_bucket{le="0.005"} 10
 lame_d_decision_seconds_bucket{le="+Inf"} 10
 lame_d_decision_seconds_sum 0.008
 lame_d_decision_seconds_count 10
-lame_d_decisions_total{decision="ALLOW",reason="OK"} 9
-lame_d_decisions_total{decision="REJECT",reason="SELF_TRADE"} 1
-lame_d_refused_total{reason="RISK_BUSY"} 0
+lame_d_decisions_total{decision="APPROVED",reason=""} 7
+lame_d_decisions_total{decision="REJECTED",reason="SELF_TRADE"} 2
+lame_d_decisions_total{decision="REJECTED",reason="WASH_TRADE"} 1
+lame_d_refused_total{reason="RISK_BUSY"} 1
 lame_d_ready 1
 lame_d_b_connected 1
 lame_d_decision_queue 0
+lame_d_timed_out_orders 0
 lame_d_outbox_backlog 0
 """
     snap = asyncio.run(
@@ -287,11 +293,15 @@ lame_d_outbox_backlog 0
     assert snap["services_up"] == 4
     by_id = {s["id"]: s for s in snap["services"]}
     assert by_id["service-a"]["requests_total"] == 10
-    assert by_id["service-a"]["errors_total"] == 1
+    assert by_id["service-a"]["errors_total"] == 3
+    assert by_id["service-a"]["key_gauges"]["orders_refused"] == 3
     assert by_id["service-b"]["requests_total"] == 15
     assert by_id["service-b"]["errors_total"] == 1
-    assert by_id["service-d"]["requests_total"] == 10
-    assert by_id["service-d"]["errors_total"] == 1
+    assert by_id["service-b"]["key_gauges"]["outputs_total"] == 15
+    assert by_id["service-d"]["requests_total"] == 11
+    assert by_id["service-d"]["errors_total"] == 4
+    assert by_id["service-d"]["key_gauges"]["approved_decisions"] == 7
+    assert by_id["service-d"]["key_gauges"]["rejected_decisions"] == 3
     assert by_id["service-d"]["latency_ms"]["p95"] > 0.0
     assert "estimated_equivalent_cost_usd" in snap["ai"]
     assert "direct_api_spend_usd" in snap["ai"]
