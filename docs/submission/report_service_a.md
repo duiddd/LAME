@@ -26,7 +26,7 @@ circuit breaker and shedding window live in memory (tech decision D2).
 | A user's double click, A's resend to D, D's resend to A | No double effect | Three idempotency keys: `client_order_id`, A's `order_id` (D deduplicates), `notify_seq` plus B's `(day, seq)` for trades |
 | What the browser shows | Eventual, with replay | The event log row commits with the change; SSE replays from `Last-Event-ID` after a disconnect |
 
-A rule follows from this, and is the decision recorded in ADR-A: **once a request may have
+A rule follows from this, and is the decision recorded in ADR-002: **once a request may have
 reached D, funds move only on D's notification**, never on a timeout or an acknowledgement. Only
 a request that certainly never left A (no connection, or D's own "not taken") is released at once.
 

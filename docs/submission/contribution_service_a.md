@@ -9,7 +9,7 @@ checks, the D client with failure classification, circuit breaker and load shedd
 notifications effectively once, reconciliation of unanswered orders, candles and the market
 summary, the per-user event stream, metrics, and A's container and compose file.
 
-**Decisions owned:** ADR-A (funds held until D's notification settles the order); A's technical
+**Decisions owned:** ADR-002 (funds held until D's notification settles the order); A's technical
 decisions D1–D29 in `docs/service_a_tech_decisions.md`, including sending a market buy as a capped
 limit order and limiting a modify to the remaining quantity.
 
