@@ -67,7 +67,7 @@ local processes. Nothing is merged and no teammate's code is changed. It needs D
 Python 3.12, Node and Git; it works from cmd or PowerShell:
 
 ```bash
-powershell -ExecutionPolicy Bypass -File service_a	oolsun_local.ps1
+powershell -ExecutionPolicy Bypass -File service_a\tools\run_local.ps1
 ```
 
 | Option | What it does |
