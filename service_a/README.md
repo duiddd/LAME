@@ -99,7 +99,7 @@ show trouble first:
 | `lame_a_md_age_seconds{symbol}` | Time since B's last market data |
 
 **Break it, and what recovery looks like.** Each was run against the real D and B; the measured
-numbers are in `docs/submission/report_service_a.md`.
+numbers are in `docs/submission/LAME_Architecture_Report_AI_Contribution_v2.pdf`.
 
 | Break | How | Expected | Recovers by |
 | --- | --- | --- | --- |
@@ -117,7 +117,7 @@ numbers are in `docs/submission/report_service_a.md`.
 | `tools/bench_notifications.py` | How fast notifications are applied |
 | `tools/screenshot.py` | A dashboard as PNG over a fault run's time window |
 
-The results of the 20 Nov run on the compose system are in `docs/submission/fault_injection.md`.
+The results of the 20 Nov run on the compose system are in `docs/submission/LAME_Failure_Injection_v2.pdf`.
 
 ## Operating notes
 
