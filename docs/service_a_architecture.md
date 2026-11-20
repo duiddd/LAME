@@ -348,7 +348,11 @@ D's notifications are the primary path. Reconciliation only covers a notificatio
 
 We accept that funds stay frozen while D is unavailable, in return for never settling a trade against released funds.
 
-## 12. Metrics
+## 12. Metrics and observability
+
+### 12.1 A's metrics
+
+`GET /metrics` exports these series in Prometheus format; `GET /healthz` reports readiness, the background tasks, the breaker and load shedding.
 
 | Metric | Meaning |
 | --- | --- |
@@ -368,16 +372,37 @@ We accept that funds stay frozen while D is unavailable, in return for never set
 | `lame_a_bg_task_restarts_total{task}` | Background task restarts |
 | `lame_a_md_age_seconds{symbol}` | Time since A last received any message from B for that pair |
 
+### 12.2 What the team dashboard computes from A's metrics
+
+The team dashboard is Service C's: a Grafana dashboard fed by Prometheus, which scrapes `service-a:8000/metrics` every 5 s, and the frontend's `/dashboard` page, fed by C's `GET /api/observability`, which scrapes A's `/metrics` on each request (every 5 s while the page is open). A only exports the series; the numbers below are computed from them.
+
+| Number shown | Where | Computed from A's series | How to read it |
+| --- | --- | --- | --- |
+| A request rate | Grafana | `sum(rate(lame_a_http_request_duration_seconds_count[1m]))` | All API requests per second over the last minute; the SSE stream is not counted |
+| A request rate | `/dashboard` | Change of the same `_count` total between C's recent scrapes | The same, over C's own sampling window |
+| A order errors | Grafana | `sum(rate(lame_a_orders_total{result=~"SYSTEM_BUSY\|RISK_REJECTED\|NO_FRESH_PRICE\|REJECTED"}[1m]))` | Orders refused because a dependency failed: D down or slow (`SYSTEM_BUSY`), B's feed stale (`NO_FRESH_PRICE`). Business refusals (balance, price band) are excluded. A never records `RISK_REJECTED` or `REJECTED` in this counter (those reach A as notifications), so those two terms are always empty |
+| A errors and error % | `/dashboard` | Errors = the same `SYSTEM_BUSY`, `NO_FRESH_PRICE` counts plus `lame_a_auth_failures_total`, `lame_a_notify_failures_total`, `lame_a_md_bad_messages_total` and `lame_a_notification_gaps_total`; error % = errors ÷ all HTTP requests | Totals since A started, not a recent rate. A notification gap is counted although A heals it with `409` |
+| A HTTP latency p50 / p95 / p99 | Grafana p95; `/dashboard` all three | `histogram_quantile` over `lame_a_http_request_duration_seconds_bucket`, summed over endpoint, method and status | Grafana: over the last minute; `/dashboard`: since A started. Includes fast reads, so it is lower than the latency of placing an order |
+| A order completion p95 (p99) | Grafana; `/dashboard` | The same over `lame_a_order_completion_seconds_bucket` | Placing an order to D's first outcome: the number load shedding acts on (section 10). It rises when D is slow |
+| Circuit breaker, load shedding | Grafana; `/dashboard` | `lame_a_circuit_state` (0 closed, 1 half open, 2 open), `lame_a_shedding_active` | `/dashboard` marks A `DEGRADED` while the breaker is open or shedding is on |
+| Orders unsettled, notification cursor age | `/dashboard` | `lame_a_orders_unsettled`, `lame_a_notify_cursor_age_seconds` | A cursor age that keeps growing while D has notifications waiting means settlement has stopped. While nothing trades, the age also grows; read it with the request rate |
+| A up or offline | `/dashboard` | Whether C's scrape of A's `/metrics` succeeded | Offline means A did not answer within C's 0.35 s scrape timeout |
+
+The method and status labels of `lame_a_http_request_duration_seconds` were added for the dashboard, so that A's server errors (`status=~"5.."`) can be counted directly. The dashboard does not use them yet.
+
+The failure-injection run of 18 Nov and its dashboard captures are in `docs/submission/fault_injection.md`.
+
 ## 13. Frontend (D15)
 
 React + Vite + TypeScript, built to static files and served by an nginx container on port 3000. The layout follows a typical spot-trading page; LAME uses its own name and logo.
 
-Routes: `/login`, `/trade/:symbol`, `/news-analyst`.
+Routes: `/login`, `/trade/:symbol`, `/news-analyst`, `/dashboard`.
 
 | Page | Owner |
 | --- | --- |
 | Trade (main page) | A |
 | News & Analyst | C (a full-page `<iframe>` of C's page inside A's shell) |
+| Dashboard | C (system and AI observability from C's `/api/observability`; section 12.2) |
 
 Trade page regions:
 
@@ -419,7 +444,7 @@ Client rules (D15):
 
 ## 14. How A fits the other services
 
-A adapts to what D and B implement today; nothing here requires them to change. This was checked by reading `feature/risk_control` (`d1635ed`) and `feature/match_engine` (`8b2e3c5`). The services have not yet been run together.
+A adapts to what D and B implement today; nothing here requires them to change. This was checked by reading `feature/risk_control` (`d1635ed`) and `feature/match_engine` (`8b2e3c5`), and by running all services together, as local processes and from the root compose file (18–20 Nov).
 
 | What the service does | What A does |
 | --- | --- |
@@ -430,14 +455,14 @@ A adapts to what D and B implement today; nothing here requires them to change. 
 | B's heartbeat repeats `last_ms` | Freshness is measured from receipt, not from `last_ms` (section 7.2) |
 | B accepts orders 00:00–23:00 Dublin time (changed from 09:30–16:00 on 11-06) and cancels resting orders at 23:00 | The UI shows "Market closed" outside those hours |
 | B's trading day is the Dublin date, `YYYY-MM-DD` | A uses `b_day` for the day open |
-| B reads `SYMBOLS` from the environment, and D reads its own `symbols.json` with `tick` and `lot` | A has its own symbol file with `tick`, `lot`, limits and decimals. A test checks that `tick` and `lot` match D's file |
+| B reads its pairs from `match_engine/config/pairs.json`: 2 price decimals, 6 quantity decimals, BTC-USDT lot 100 (0.0001 BTC), ETH-USDT lot 1000 (0.001 ETH). D copies `tick` and `lot` from it | One integer unit means the same in A, B and D (team decision, 19 Nov). A's `config/symbols.json` uses B's decimals, tick and lot, with USDT at 8 decimals so that `price × qty` stays exact, and A's own size and value limits. `tests/test_pairs.py` fails if A's file drifts from B's or D's |
 | D's `linked_accounts.json` fixes user IDs (1024, 1025, 3001–3003) | A seeds those users from the same file; registered users get IDs from 100000 upwards |
 | Bots go through A | Bots use the public API with a seeded account. There are no bot-specific features; the rate limit is configuration |
 | C's widget sends the pair chosen in its own selector | Accepted as it is; A only embeds it |
 
-**To agree with the team (no code change requested):**
+**Agreed with the team:**
 
-1. **Price and quantity decimals.** Prices and quantities are integers everywhere, but no service defines what one unit means. A needs this for decimal conversion and for computing a notional from `price × qty`.
+1. **Price and quantity decimals.** Until 18 Nov A used 3 quantity decimals and lot 1 while B used 6 and lot 100/1000, so B refused A's orders below 0.1 BTC with `INVALID_QTY`, and every quantity was read 1000 times apart. The integration test found it; on 19 Nov the team adopted B's grid. Changing units needs A's, B's and D's data reset together.
 2. **Modify.** D's document asks A three questions; A's answers are in section 5.4.
 
 ## 15. Deployment
