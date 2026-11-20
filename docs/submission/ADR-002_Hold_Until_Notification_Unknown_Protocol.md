@@ -1,47 +1,43 @@
-# ADR-002: Hold Funds Until Service D's Notification Settles Order Fate
+# ADR-002 — Funds stay held until D's notification settles the order
 
-**Status:** Accepted
-**Date:** 2026-11-18
-**Owners:** Pin-Yun Kuo (Service A) & Team LAME (Bo Wu, Rushabh Mutha, Zongyan Yang)
+**Status:** accepted
 
----
+**Context.** A is the only writer of balances, and spot trading allows no overdraft: `CHECK (available >= 0)`
+is the last line, and a settlement that would break it stops settlement for every user. A places the hold in
+PostgreSQL, then sends the order to D over HTTP. D's `202` only says that D received it; the outcome
+(rejected by D, accepted by B, each trade, each cancel) arrives later as a notification with a contiguous
+`notify_seq`, which D keeps in its outbox and resends until A answers. A call that times out is therefore
+ambiguous: the order may never have reached D, or B may already hold it. A applies notifications one at a
+time, measured at 29–46 a second on the test laptop.
 
-## Context
+This decision would reopen if D answered with the final outcome inside the HTTP call; if B promised to
+refuse any command older than A's 2 s timeout, so that a timeout meant "not placed"; or if users valued
+spending a frozen balance during an outage more than the rare overdraft that someone would then repair by hand.
 
-`Service A` (`:8000`, PostgreSQL) is the sole authority for user balances, holds, and order state. When a trader places an order, `A` atomically debits `available` into `held` and sends the order over HTTP to `Service D` (`:8400`), which checks `R1`/`R2` and forwards approved commands over `/d` to `Service B`.
+**Decision.** Verdict: accept. Pin-Yun Kuo decided that once a request may have reached D, A moves funds only
+on D's notifications, never on a timeout or a `202`. A request that certainly never left A (the connection
+was refused, or D answered that it kept no record) is rejected and released at once. A request sent without
+a reply becomes `UNKNOWN`: the hold stays, A resends the same `order_id` (D deduplicates) for up to 5 s, then
+cancels, and the cancel's result releases the funds. I chose correctness over availability: a frozen balance
+recovers by itself when D returns, an overdrawn one needs a person. Releasing on a timeout was rejected
+because a fill could then settle against money already spent again; a two-phase commit across A, D and B was
+rejected because it would hold A's row locks while B's single matching thread waits.
 
-Three load-bearing facts constrain this boundary:
-1. **Asynchronous Settlement & Ambiguous Timeouts:** `D`'s synchronous `POST /v1/orders` response (`202`) confirms only queued receipt — actual outcomes (`RISK_REJECTED`, `PROCESSING`, `PARTIALLY_FILLED`, `FILLED`, `CANCELLED`) arrive asynchronously via ordered notifications (`POST /internal/order-events`, `notify_seq`). An HTTP timeout or lost connection after sending leaves it unknown whether `D` or `B` accepted the order.
-2. **Zero-Overdraft Spot Invariant:** Spot accounts allow zero margin/overdraft. `A`'s PostgreSQL ledger enforces `CHECK (available >= 0)` on every update; if a notification violates it, `A` halts notification settlement across all users rather than corrupting balances.
-3. **End-to-End Flow:** `A` does not connect directly to `B`'s command stream, so `D`'s outbox is the single ordered source of settlement truth.
+**Consequences.**
 
-*Flip conditions:* Revisit only if `D` returns a final synchronous decision+matching outcome inside the HTTP request, `B` enforces sub-timeout expiry on all in-flight commands so timeouts guarantee non-execution, or operational policy prefers occasional manual overdraft resolution over temporary balance freezes during outages.
-
----
-
-## Decision
-
-Once an order request may have left `A`, **held funds are settled or released solely by `D`'s ordered notifications (`notify_seq`) — never on an HTTP timeout or `202` acknowledgement**:
-
-1. **Immediate Release Only on Known Non-Delivery:** Connection refused before send, or `D` returning synchronous `503` (saving no state), releases the hold immediately.
-2. **`UNKNOWN` Protocol on Ambiguous Timeout:** Unanswered requests transition to `UNKNOWN` with funds kept held (`"Confirming"` in the React UI); `A` resends with identical idempotent `order_id` for up to `RESEND_WINDOW` (`5 s`), then issues `cancel` via `D` (creating a `B` tombstone if unseen), releasing funds only when `D`'s notification confirms rejection or cancellation.
-3. **Idempotent Ordered Consumer:** `A` locks its `notify_seq` cursor `FOR UPDATE`, returns `409 {"expected_seq": N}` on sequence gaps so `D` rewinds cleanly, and deduplicates trades by `B`'s `(day, seq)`.
-
----
-
-## Consequences
-
-**Positive (assessed against constraints)**
-- **Zero overdrafts / zero double-spends:** Verified across `210` Service A unit tests (including `test_concurrent_holds_never_overdraw` with 100 concurrent holds) and `26` end-to-end checks (`local_e2e.py`) against live `D` and `B`, leaving zero leaked holds.
-- **Crash-safe restart:** Killed `A` processes resume `PENDING` orders into `UNKNOWN` reconciliation without losing ledger invariants.
-
-**Negative (knowingly accepted trade-offs)**
-- **Temporary frozen balances during `D`/`B` outages:** Measured `15.1 s` from killing `D` to `A` resuming acceptance (`4.2 s` D catch-up + `9.0 s` breaker trial); outages longer than `RESEND_WINDOW` (`5 s`) cancel in-flight orders.
-- **Single-file settlement throughput ceiling:** Sequential notification application measured `29–46 notifications/s` (`~10–15 trades/s` locally); batching contiguous notifications in one DB transaction is the documented scale-up path.
-
----
-
-## Alternatives Considered
-
-- **Release holds immediately on HTTP timeout:** Restores liquidity within `2 s`, but risks letting an in-flight order fill at `B` after cash is re-spent, tripping `CHECK (available >= 0)` and halting settlement.
-- **Distributed Two-Phase Commit (2PC) across A, D, and B:** Eliminates `UNKNOWN` states conceptually, but blocks Rust matching threads behind PostgreSQL locks and is fragile across container crashes.
+- No fill settles against released money, against the zero-overdraft constraint: 219 A tests, including 100
+  concurrent holds on one balance, and after the 20 Nov fault and consistency runs a books check over 243
+  orders found 0 balances unexplained by the ledger, 0 holds without an open order and 0 orders left in doubt.
+- Funds of orders in flight freeze while D is unreachable, against a demo where a user waits minutes, not
+  hours: with D's container killed for about 40 s, every new order was refused before anything was held, and
+  A accepted again 2.7 s after D was ready. An outage longer than the 5 s resend window turns an in-flight
+  order into a cancel: with D paused for 8 s, the order ended `CANCELLED` and its hold returned 1.3 s after D
+  came back.
+- Users see "Confirming" instead of a plain failure and must not place the order again, against the rule
+  that one click makes at most one order: the UI says so, and the cost is one more order state and its
+  transition tests (every status and notification pair is enumerated).
+- Settlement follows D's ordered delivery, which limits A to about 10–15 trades a second on the laptop
+  (up to three notifications per trade): enough for the demo's bots, not for heavy bot load. Applying a
+  contiguous batch of notifications in one transaction is the planned remedy and keeps this decision.
+- If D lost its outbox, held funds would stay held until someone intervenes, against the rule that no
+  money disappears silently: `lame_a_orders_unsettled` and `lame_a_notify_cursor_age_seconds` expose it.

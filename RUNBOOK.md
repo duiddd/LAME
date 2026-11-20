@@ -39,7 +39,7 @@ This runbook covers how to **observe**, **deliberately break**, and **verify rec
 ### Scenario D — Service D Down or Slow (Synchronous Gate Fail-Closed)
 - **Break (Slow):** Enable `FAULTS_ENABLED=true` on `service-d` and trigger `decision_delay_ms = 800` via `POST /admin/faults` (see [`service_d/RUNBOOK.md`](service_d/RUNBOOK.md)).
 - **Observe:** `lame_d_decision_seconds` p99 spikes; `lame_d_decision_queue` climbs; `Service A` triggers load shedding (`lame_a_shedding_active = 1`), refusing new orders with `503 SYSTEM_BUSY` without releasing existing holds.
-- **Break (Down):** `docker kill lame-service-d`. After 5 connect timeouts, `Service A`'s circuit breaker opens (`lame_a_circuit_state = 2`); in-flight orders become `UNKNOWN` with holds safely preserved (`CHECK (available >= 0)` never violated).
+- **Break (Down):** `docker kill lame-service-d`. New orders are refused with `503 SYSTEM_BUSY` and nothing is held; after 5 failures `Service A`'s circuit breaker opens (`lame_a_circuit_state = 2`) and refusals come at once. Only an order that was sent without a reply becomes `UNKNOWN`, with its hold kept until `D`'s notification (`ADR-002`).
 - **Recover:** Remove fault / restart `service-d`. `D` replays from `B` (`/d` `from_seq=0`) until `lame_d_ready = 1`, drains its ordered `outbox` to `A`, and `A`'s breaker closes on trial probe.
 
 ### Scenario E — Service B Killed Mid-Day (Deterministic Replay Recovery)
