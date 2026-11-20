@@ -8,7 +8,7 @@ they are in the same checkout (on main).
 | Test | Purpose | Method |
 | --- | --- | --- |
 | test_production_grid_is_bs | The decided grid | Load config/symbols.json -> 2 price decimals, 6 quantity decimals, BTC lot 100 (0.0001), ETH lot 1000 (0.001), USDT 6 decimals |
-| test_grid_matches_b_and_d | A, B and D agree | B's pairs.json and D's symbols.json, when present -> same symbols, tick and lot; B's price, quantity and asset decimals equal A's |
+| test_grid_matches_b_and_d | A, B and D agree | B's pairs.json and D's symbols.json, when present -> same symbols, tick and lot; B's price and quantity decimals and its quote asset's decimals equal A's |
 | test_grid_must_keep_amounts_exact | No rounding, ever | USDT 6 decimals with a lot of 0.000001 BTC -> the loader refuses the file |
 | test_settlement_is_exact_on_the_production_grid | Amounts at the smallest units | Buy 0.0001 BTC at 50000.01, fill at 50000.00 -> 5.000001 held, 0.000001 back, seller gets 5.000000, ledger balances |
 | test_order_units_follow_the_grid | What crosses the wire | Production grid: 0.00005 BTC -> QTY_TOO_SMALL, 0.00015 -> INVALID_LOT, nothing sent; 0.0001 BTC -> qty 100 sent to D |
@@ -56,9 +56,13 @@ def test_grid_matches_b_and_d():
         s = mine[name]
         assert (p["tick"], p["lot"]) == (s.tick, s.lot), name
         assert (p["price_decimals"], p["qty_decimals"]) == (s.price_decimals, s.qty_decimals), name
+    # Only the quote asset's decimals are a shared unit (amounts in USDT). B lists BTC and ETH at their
+    # native 8 decimals, while orders and A's balances use the pair's 6 quantity decimals.
+    # 只有報價資產(USDT)的位數是共用單位;B 列出的 BTC、ETH 8 位是原生精度,下單與 A 的餘額用交易對的 6 位。
     b_assets = json.loads(B_PAIRS.read_text(encoding="utf-8"))["assets"]
     mine_assets = load_catalog(str(PRODUCTION)).assets
-    assert {a: v["decimals"] for a, v in b_assets.items()} == {a: mine_assets[a].decimals for a in b_assets}
+    for quote in {s.quote for s in mine.values()}:
+        assert b_assets[quote]["decimals"] == mine_assets[quote].decimals, quote
     if D_SYMBOLS.exists():
         d = {x["symbol"]: x for x in json.loads(D_SYMBOLS.read_text(encoding="utf-8"))["symbols"]}
         assert {n: (x["tick"], x["lot"]) for n, x in d.items()} == {n: (s.tick, s.lot) for n, s in mine.items()}
